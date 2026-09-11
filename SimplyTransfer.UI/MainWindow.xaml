@@ -1,0 +1,1198 @@
+<Window x:Class="SimplyTransfer.UI.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:SimplyTransfer.UI.Controls"
+        xmlns:viewmodels="clr-namespace:SimplyTransfer.UI.ViewModels"
+        Title="Simply Transfer - Enterprise OpenSSH File Sync" 
+        Height="750" Width="1180"
+        MinHeight="620" MinWidth="980"
+        WindowStartupLocation="CenterScreen"
+        Icon="Assets/icon.ico"
+        Background="{StaticResource BgDark}">
+    
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisConverter"/>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <!-- Top App Bar -->
+            <RowDefinition Height="Auto"/>
+            <!-- Main Content Tabs -->
+            <RowDefinition Height="*"/>
+            <!-- Bottom Status Bar -->
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ========================================== -->
+        <!-- Top App Bar: Profile Selector & VPN Badge  -->
+        <!-- ========================================== -->
+        <Border Grid.Row="0" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="0,0,0,1" Padding="16,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Branding -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,24,0">
+                    <Border Width="34" Height="34" CornerRadius="8" Background="{StaticResource BgDark}" Margin="0,0,12,0" BorderBrush="{StaticResource BorderLight}" BorderThickness="1">
+                        <Image Source="Assets/logo.png" Margin="2" RenderOptions.BitmapScalingMode="HighQuality"/>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="SIMPLY TRANSFER" FontSize="15" FontWeight="Bold" Foreground="{StaticResource TextPrimary}"/>
+                        <TextBlock Text="VSS-Enabled OpenSSH Sync" FontSize="11" Foreground="{StaticResource TextSecondary}"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Profile Management Bar -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Profile:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource TextSecondary}" FontWeight="SemiBold"/>
+                    <ComboBox ItemsSource="{Binding Profiles}" 
+                              SelectedItem="{Binding SelectedProfile}" 
+                              DisplayMemberPath="Name" 
+                              Width="210" Height="32" 
+                              VerticalContentAlignment="Center"
+                              Margin="0,0,10,0"/>
+
+                    <Button Content="Save" Command="{Binding SaveProfileCommand}" Style="{StaticResource ModernButton}" Margin="0,0,6,0" Padding="10,4"/>
+                    <Button Content="+ New" Command="{Binding NewProfileCommand}" Style="{StaticResource ModernButton}" Margin="0,0,6,0" Padding="10,4"/>
+                    <Button Content="Export" Command="{Binding ExportProfileCommand}" Style="{StaticResource ModernButton}" Margin="0,0,6,0" Padding="10,4"/>
+                    <Button Content="Import" Command="{Binding ImportProfileCommand}" Style="{StaticResource ModernButton}" Margin="0,0,6,0" Padding="10,4"/>
+                    <Button Content="Delete" Command="{Binding DeleteProfileCommand}" Style="{StaticResource ModernButton}" Margin="0,0,6,0" Padding="10,4" Foreground="#F87171"/>
+                </StackPanel>
+
+                <!-- VPN Quick Status Card -->
+                <Border Grid.Column="2" Background="{StaticResource BgCard}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="10,6">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <!-- VPN Status Dot -->
+                        <Ellipse Width="10" Height="10" Margin="0,0,8,0">
+                            <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                    <Setter Property="Fill" Value="#EF4444"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsVpnConnected}" Value="True">
+                                            <Setter Property="Fill" Value="#10B981"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsVpnBusy}" Value="True">
+                                            <Setter Property="Fill" Value="#F59E0B"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Ellipse.Style>
+                        </Ellipse>
+
+                        <StackPanel Margin="0,0,12,0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="VPN: " FontSize="11" Foreground="{StaticResource TextSecondary}"/>
+                                <TextBlock Text="{Binding SelectedProfile.VpnType}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextPrimary}"/>
+                                <TextBlock Text=" (" FontSize="11" Foreground="{StaticResource TextSecondary}"/>
+                                <TextBlock Text="{Binding SelectedProfile.VpnConnectionName}" FontSize="11" Foreground="{StaticResource TextSecondary}"/>
+                                <TextBlock Text=")" FontSize="11" Foreground="{StaticResource TextSecondary}"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding VpnStatusText}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextSecondary}"/>
+                        </StackPanel>
+
+                        <!-- VPN Toggle Button -->
+                        <Button Command="{Binding ToggleVpnCommand}"
+                                Padding="10,4">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource ModernButton}">
+                                    <Setter Property="Content" Value="Connect"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsVpnConnected}" Value="True">
+                                            <Setter Property="Content" Value="Disconnect"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsVpnBusy}" Value="True">
+                                            <Setter Property="Content" Value="Working..."/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- ========================================== -->
+        <!-- Main Body: Navigation Tabs                 -->
+        <!-- ========================================== -->
+        <TabControl Grid.Row="1" Margin="14,10,14,10">
+            <!-- Tab 1: Sync and Hash Integrity -->
+            <TabItem Header="  Sync &amp; Validation  ">
+                <Grid Margin="0,10,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0">
+                        <Grid.ColumnDefinitions>
+                            <!-- Left: File Browser TreeView -->
+                            <ColumnDefinition Width="380" MinWidth="260"/>
+                            <ColumnDefinition Width="8"/>
+                            <!-- Right: Transfer & Validation Queue -->
+                            <ColumnDefinition Width="*" MinWidth="400"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Source File Browser Card -->
+                        <Border Grid.Column="0" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="12">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <StackPanel Grid.Row="0" Margin="0,0,0,10">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch">
+                                        <TextBlock Text="Local File Browser" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
+                                        <Border Background="#312E81" CornerRadius="4" Padding="6,2" Margin="10,0,0,0">
+                                            <TextBlock Text="Multi-Select" FontSize="10" Foreground="#A5B4FC" FontWeight="SemiBold"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <TextBlock Text="Select files or folders. QuickBooks files (.qbw/.tlg) are highlighted for atomic VSS snapshots." 
+                                               FontSize="11" Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                </StackPanel>
+
+                                <!-- TreeView -->
+                                <TreeView Grid.Row="1" 
+                                          ItemsSource="{Binding FileBrowser.RootNodes}" 
+                                          Background="Transparent" 
+                                          BorderThickness="0">
+                                    <TreeView.ItemContainerStyle>
+                                        <Style TargetType="{x:Type TreeViewItem}">
+                                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+                                            <Setter Property="Padding" Value="2,3"/>
+                                        </Style>
+                                    </TreeView.ItemContainerStyle>
+
+                                    <TreeView.ItemTemplate>
+                                        <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <!-- Selection Checkbox -->
+                                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" 
+                                                          IsThreeState="{Binding IsDirectory}"
+                                                          VerticalAlignment="Center" 
+                                                          Margin="0,0,6,0"/>
+
+                                                <!-- QuickBooks Special Indicator Badge -->
+                                                <Border Visibility="{Binding IsQuickBooksFile, Converter={StaticResource BoolToVisConverter}}" 
+                                                        Background="#047857" CornerRadius="3" Padding="4,1" Margin="0,0,6,0"
+                                                        ToolTip="Locked QuickBooks Database — Protected via Volume Shadow Copy (VSS)">
+                                                    <TextBlock Text="QB" FontSize="9" FontWeight="Bold" Foreground="#A7F3D0"/>
+                                                </Border>
+
+                                                <!-- Node Name -->
+                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Foreground="{StaticResource TextPrimary}"/>
+
+                                                <!-- File Size (if not directory) -->
+                                                <TextBlock Text="{Binding FormattedSize, StringFormat=' ({0})'}" 
+                                                           VerticalAlignment="Center" 
+                                                           FontSize="11" 
+                                                           Foreground="{StaticResource TextSecondary}" 
+                                                           Margin="4,0,0,0"/>
+                                            </StackPanel>
+                                        </HierarchicalDataTemplate>
+                                    </TreeView.ItemTemplate>
+                                </TreeView>
+                            </Grid>
+                        </Border>
+
+                        <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center" Background="Transparent" Cursor="SizeWE"/>
+
+                        <!-- Transfer Queue & Validation Table -->
+                        <Border Grid.Column="2" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="12">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Queue Header -->
+                                <Grid Grid.Row="0" Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Transfer Queue &amp; SHA-256 Validation" FontWeight="Bold" FontSize="14"/>
+                                        <TextBlock Text="Real-time SFTP progress and automated two-step cryptographic verification." 
+                                                   FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" Text="{Binding TransferQueue.Count, StringFormat='Total: {0} items'}" 
+                                               Foreground="{StaticResource TextSecondary}" VerticalAlignment="Center" FontSize="12"/>
+                                </Grid>
+
+                                <!-- Queue DataGrid / ListView -->
+                                <ListView Grid.Row="1" 
+                                          ItemsSource="{Binding TransferQueue}" 
+                                          Background="Transparent" 
+                                          BorderBrush="{StaticResource BorderDark}" 
+                                          BorderThickness="1">
+                                    <ListView.View>
+                                        <GridView>
+                                            <!-- File Name & QB indicator -->
+                                            <GridViewColumn Header="File Name" Width="200">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                            <Border Visibility="{Binding IsQuickBooksFile, Converter={StaticResource BoolToVisConverter}}" 
+                                                                    Background="#047857" CornerRadius="3" Padding="4,1" Margin="0,0,6,0">
+                                                                <TextBlock Text="QB" FontSize="9" FontWeight="Bold" Foreground="#A7F3D0"/>
+                                                            </Border>
+                                                            <TextBlock Text="{Binding FileName}" Foreground="{StaticResource TextPrimary}" FontWeight="SemiBold" ToolTip="{Binding LocalFilePath}"/>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+
+                                            <!-- Size -->
+                                            <GridViewColumn Header="Size" Width="80" DisplayMemberBinding="{Binding FormattedSize}"/>
+
+                                            <!-- VSS Mode -->
+                                            <GridViewColumn Header="VSS Mode" Width="100">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Border CornerRadius="4" Padding="5,2" HorizontalAlignment="Left">
+                                                            <Border.Style>
+                                                                <Style TargetType="Border">
+                                                                    <Setter Property="Background" Value="#1E293B"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsVssRequired}" Value="True">
+                                                                            <Setter Property="Background" Value="#1E3A8A"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Border.Style>
+                                                            <TextBlock FontSize="10" FontWeight="SemiBold">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock">
+                                                                        <Setter Property="Text" Value="Standard"/>
+                                                                        <Setter Property="Foreground" Value="#94A3B8"/>
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsVssRequired}" Value="True">
+                                                                                <Setter Property="Text" Value="VSS Snapshot"/>
+                                                                                <Setter Property="Foreground" Value="#93C5FD"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+
+                                            <!-- Progress Bar -->
+                                            <GridViewColumn Header="Transfer Progress" Width="140">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Grid Width="120">
+                                                            <ProgressBar Value="{Binding ProgressPercentage}" Height="12" Maximum="100" Background="#181E26" Foreground="{StaticResource AccentPrimary}"/>
+                                                            <TextBlock Text="{Binding ProgressPercentage, StringFormat='{}{0:F0}%'}" FontSize="9" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" Foreground="White"/>
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+
+                                            <!-- Local SHA-256 -->
+                                            <GridViewColumn Header="Local SHA-256" Width="110">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding LocalSha256}" 
+                                                                   FontFamily="Consolas" FontSize="11" 
+                                                                   Foreground="{StaticResource TextSecondary}" 
+                                                                   TextTrimming="CharacterEllipsis" 
+                                                                   ToolTip="{Binding LocalSha256}"/>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+
+                                            <!-- Remote SHA-256 -->
+                                            <GridViewColumn Header="Remote SHA-256" Width="110">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding RemoteSha256}" 
+                                                                   FontFamily="Consolas" FontSize="11" 
+                                                                   Foreground="{StaticResource TextSecondary}" 
+                                                                   TextTrimming="CharacterEllipsis" 
+                                                                   ToolTip="{Binding RemoteSha256}"/>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+
+                                            <!-- Validation Badge -->
+                                            <GridViewColumn Header="Integrity Status" Width="120">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <controls:ValidationBadge Status="{Binding HashStatus}" ToolTip="{Binding StatusMessage}"/>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+                                        </GridView>
+                                    </ListView.View>
+                                </ListView>
+                            </Grid>
+                        </Border>
+                    </Grid>
+
+                    <!-- Bottom Action Controls -->
+                    <Border Grid.Row="1" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Margin="0,10,0,0" Padding="14,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Sync Action Buttons -->
+                            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                <Button Content="▶  Start SFTP Sync" 
+                                        Command="{Binding StartSyncCommand}" 
+                                        IsEnabled="{Binding CanStartSync}"
+                                        Style="{StaticResource PrimaryButton}" 
+                                        FontSize="14" Height="38" Padding="18,6" Margin="0,0,10,0"/>
+
+                                <Button Content="⚡  Validate Connection" 
+                                        Command="{Binding ValidateConnectionCommand}" 
+                                        IsEnabled="{Binding CanStartSync}"
+                                        Style="{StaticResource ModernButton}" 
+                                        FontSize="13" Height="38" Padding="14,6" Margin="0,0,10,0" Foreground="#38BDF8"
+                                        ToolTip="Probe TCP socket and SSH key authentication before starting sync"/>
+
+                                <Button Content="📖  Key Guide" 
+                                        Command="{Binding ShowKeyInstructionsCommand}" 
+                                        Style="{StaticResource ModernButton}" 
+                                        FontSize="13" Height="38" Padding="12,6" Margin="0,0,10,0" Foreground="#34D399"
+                                        ToolTip="Detailed instructions and commands for assigning the public key on the server"/>
+
+                                <Button Content="⏹  Cancel" 
+                                        Command="{Binding CancelSyncCommand}" 
+                                        IsEnabled="{Binding IsSyncing}"
+                                        Style="{StaticResource ModernButton}" 
+                                        FontSize="13" Height="38" Padding="14,6" Foreground="#F87171"/>
+                            </StackPanel>
+
+                            <!-- Overall Progress -->
+                            <StackPanel Grid.Column="1" Margin="20,0,20,0" VerticalAlignment="Center">
+                                <Grid Margin="0,0,0,4">
+                                    <TextBlock Text="{Binding StatusMessage}" FontSize="12" Foreground="{StaticResource TextSecondary}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding OverallProgress, StringFormat='{}{0:F0}%'}" FontSize="12" FontWeight="Bold" Foreground="{StaticResource TextPrimary}" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <ProgressBar Value="{Binding OverallProgress}" Height="8" Maximum="100" Background="#181E26" Foreground="{StaticResource AccentPrimary}"/>
+                            </StackPanel>
+
+                            <!-- Destination Summary Pill -->
+                            <Border Grid.Column="2" Background="{StaticResource BgCard}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="10,6">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Target: " FontSize="11" Foreground="{StaticResource TextSecondary}"/>
+                                    <TextBlock Text="{Binding SelectedProfile.Host}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextPrimary}"/>
+                                    <TextBlock Text=":" FontSize="11" Foreground="{StaticResource TextSecondary}"/>
+                                    <TextBlock Text="{Binding SelectedProfile.Port}" FontSize="11" Foreground="{StaticResource TextSecondary}"/>
+                                    <TextBlock Text=" ➔ " FontSize="11" Foreground="{StaticResource AccentPrimary}"/>
+                                    <TextBlock Text="{Binding SelectedProfile.DestinationDirectory}" FontSize="11" Foreground="{StaticResource TextSecondary}" TextTrimming="CharacterEllipsis" MaxWidth="150"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <!-- Tab 2: Profile Settings -->
+            <TabItem Header="  Profile Configuration  ">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                    <Grid MaxWidth="900" HorizontalAlignment="Left">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Card 1: SFTP & SSH Authentication (Key-Based Only) -->
+                        <Border Grid.Row="0" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="SFTP &amp; SSH Key Authentication" FontSize="15" FontWeight="Bold" Margin="0,0,0,4"/>
+                                <TextBlock Text="Security policy enforces pure SSH key authentication (Ed25519 or RSA-4096). Passwords are strictly disabled." 
+                                           FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,14"/>
+
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="2*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="2*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="SFTP Host / IP:" FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4"/>
+                                        <TextBox Text="{Binding SelectedProfile.Host, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Port:" FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4"/>
+                                        <TextBox Text="{Binding SelectedProfile.Port, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="4">
+                                        <TextBlock Text="SSH Username:" FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4"/>
+                                        <TextBox Text="{Binding SelectedProfile.Username, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Ed25519 / RSA Private Key Path:" FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4"/>
+                                        <TextBox Text="{Binding SelectedProfile.PrivateKeyPath, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="2" Content="Browse..." Command="{Binding BrowsePrivateKeyCommand}" 
+                                            Style="{StaticResource ModernButton}" VerticalAlignment="Bottom" Height="32" Padding="14,4"/>
+                                </Grid>
+
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Key Passphrase (Encrypted via DPAPI at rest):" FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4"/>
+                                        <TextBox Text="{Binding PlainPassphrase, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Remote Destination Directory:" FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4"/>
+                                        <TextBox Text="{Binding SelectedProfile.DestinationDirectory, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Associated Public Key & Server Assignment -->
+                                <Border Background="{StaticResource BgCard}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,6,0,12">
+                                    <StackPanel>
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock Text="Associated Public Key (to register on destination server):" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}"/>
+                                                <Border Background="#1E3A8A" CornerRadius="3" Padding="4,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                    <TextBlock Text="authorized_keys" FontSize="10" Foreground="#93C5FD"/>
+                                                </Border>
+                                            </StackPanel>
+
+                                            <Button Grid.Column="1" Content="📋  Copy Public Key" 
+                                                    Command="{Binding CopyPublicKeyCommand}" 
+                                                    Style="{StaticResource ModernButton}" 
+                                                    FontSize="11" Height="28" Padding="10,2" Margin="0,0,8,0" Foreground="#38BDF8"
+                                                    ToolTip="Copy OpenSSH public key to clipboard for pasting into authorized_keys on server"/>
+
+                                            <Button Grid.Column="2" Content="📖  Key Assignment Guide" 
+                                                    Command="{Binding ShowKeyInstructionsCommand}" 
+                                                    Style="{StaticResource ModernButton}" 
+                                                    FontSize="11" Height="28" Padding="10,2" Foreground="#34D399"
+                                                    ToolTip="Show detailed setup instructions and PowerShell commands for the destination server"/>
+                                        </Grid>
+
+                                        <TextBox Text="{Binding AssociatedPublicKey, Mode=OneWay}" 
+                                                 IsReadOnly="True" 
+                                                 FontFamily="Consolas" FontSize="11" 
+                                                 Background="#0F1318" Foreground="#E2E8F0"
+                                                 Height="48" TextWrapping="Wrap" 
+                                                 VerticalScrollBarVisibility="Auto" Padding="6"/>
+
+                                        <TextBlock Text="💡 The private key stays on this PC. Copy and place the public key above into ~/.ssh/authorized_keys (Linux) or C:\ProgramData\ssh\administrators_authorized_keys (Windows admin) on destination server." 
+                                                   FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <Button Content="⚡  Test SFTP Connection" 
+                                            Command="{Binding ValidateConnectionCommand}" 
+                                            IsEnabled="{Binding CanStartSync}"
+                                            Style="{StaticResource ModernButton}" 
+                                            Padding="16,6" Margin="0,0,10,0" Foreground="#38BDF8"/>
+
+                                    <Button Content="📖  Key Guide" 
+                                            Command="{Binding ShowKeyInstructionsCommand}" 
+                                            Style="{StaticResource ModernButton}" 
+                                            Padding="14,6" Foreground="#34D399"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Card 2: VPN Orchestration Settings -->
+                        <Border Grid.Row="1" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="VPN Pre-Flight Orchestration" FontSize="15" FontWeight="Bold" Margin="0,0,0,4"/>
+                                <TextBlock Text="Executes WireGuard or native RAS commands to establish the tunnel before probing the SSH socket." 
+                                           FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,14"/>
+
+                                <CheckBox Content="Enable Pre-Flight VPN Connection" IsChecked="{Binding SelectedProfile.UseVpn}" FontWeight="SemiBold" Margin="0,0,0,12"/>
+
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="2*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="1*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="VPN Type:" FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4"/>
+                                        <ComboBox SelectedValue="{Binding SelectedProfile.VpnType}" SelectedValuePath="Content" Height="32">
+                                            <ComboBoxItem Content="WireGuard"/>
+                                            <ComboBoxItem Content="RAS"/>
+                                        </ComboBox>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Connection / Tunnel Name:" FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4"/>
+                                        <TextBox Text="{Binding SelectedProfile.VpnConnectionName, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="4">
+                                        <TextBlock Text="Probe Timeout (sec):" FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4"/>
+                                        <TextBox Text="{Binding SelectedProfile.PreFlightTimeoutSeconds, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="WireGuard Configuration (.conf) Path (Optional):" FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4"/>
+                                        <TextBox Text="{Binding SelectedProfile.VpnConfigPath, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="2" Content="Browse Conf..." Command="{Binding BrowseWireGuardConfigCommand}" 
+                                            Style="{StaticResource ModernButton}" VerticalAlignment="Bottom" Height="32" Padding="14,4"/>
+                                </Grid>
+
+                                <CheckBox Content="Disconnect VPN automatically after sync completes" 
+                                          IsChecked="{Binding SelectedProfile.DisconnectVpnAfterSync}" 
+                                          Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Card 3: QuickBooks & VSS Snapshot Options -->
+                        <Border Grid.Row="2" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="Volume Shadow Copy Service (VSS) &amp; QuickBooks" FontSize="15" FontWeight="Bold" Margin="0,0,0,4"/>
+                                <TextBlock Text="Creates point-in-time shadow snapshots to copy open and exclusively locked .qbw and .tlg databases safely without corruption." 
+                                           FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,14"/>
+
+                                <CheckBox Content="Use Windows VSS Snapshots for locked files" 
+                                          IsChecked="{Binding SelectedProfile.UseVssForLockedFiles}" 
+                                          FontWeight="SemiBold" Margin="0,0,0,8"/>
+
+                                <CheckBox Content="Automatically detect QuickBooks databases (*.qbw, *.tlg, *.qbb)" 
+                                          IsChecked="{Binding SelectedProfile.AutoDetectQuickBooks}" 
+                                          Margin="0,0,0,4"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Profile Action Buttons -->
+                        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,20">
+                            <Button Content="Export Profile JSON" Command="{Binding ExportProfileCommand}" Style="{StaticResource ModernButton}" Margin="0,0,10,0" Padding="16,8"/>
+                            <Button Content="Save Profile Changes" Command="{Binding SaveProfileCommand}" Style="{StaticResource PrimaryButton}" Padding="20,8"/>
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Tab 3: Technician Dashboard & Dual-Runtime Observability -->
+            <TabItem Header="  Technician Dashboard  ">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                    <Grid MaxWidth="1100" HorizontalAlignment="Stretch">
+                        <Grid.RowDefinitions>
+                            <!-- Role Switcher & Health Status Banner -->
+                            <RowDefinition Height="Auto"/>
+                            <!-- Card 1: Key State & Security Health -->
+                            <RowDefinition Height="Auto"/>
+                            <!-- Card 2: Interactive PowerShell Script Runner -->
+                            <RowDefinition Height="Auto"/>
+                            <!-- Card 3: Handshake & Transfer Telemetry -->
+                            <RowDefinition Height="Auto"/>
+                            <!-- Card 4: Cryptographic Payload Integrity & Quality Matrix -->
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- ========================================== -->
+                        <!-- Row 0: Dual-Runtime Role Switcher Banner   -->
+                        <!-- ========================================== -->
+                        <Border Grid.Row="0" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="14,10" Margin="0,0,0,12">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Role Switcher Buttons -->
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="Active Runtime Role:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{StaticResource TextSecondary}" Margin="0,0,10,0"/>
+                                    
+                                    <Button Content="🖥️  Source Client Mode" 
+                                            Command="{Binding SwitchRuntimeRoleCommand}" 
+                                            CommandParameter="Source"
+                                            Margin="0,0,8,0" Padding="12,6">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource ModernButton}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsDestinationMode}" Value="False">
+                                                        <Setter Property="Background" Value="{StaticResource AccentPrimary}"/>
+                                                        <Setter Property="Foreground" Value="#FFFFFF"/>
+                                                        <Setter Property="BorderBrush" Value="{StaticResource AccentHover}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+
+                                    <Button Content="🌐  Destination Host Mode" 
+                                            Command="{Binding SwitchRuntimeRoleCommand}" 
+                                            CommandParameter="Destination"
+                                            Padding="12,6">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource ModernButton}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsDestinationMode}" Value="True">
+                                                        <Setter Property="Background" Value="{StaticResource AccentPrimary}"/>
+                                                        <Setter Property="Foreground" Value="#FFFFFF"/>
+                                                        <Setter Property="BorderBrush" Value="{StaticResource AccentHover}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                </StackPanel>
+
+                                <!-- Audit Status Banner Center -->
+                                <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal">
+                                    <TextBlock Text="Security Health: " Foreground="{StaticResource TextSecondary}" FontSize="12" VerticalAlignment="Center"/>
+                                    <Border CornerRadius="4" Padding="8,2" Margin="6,0,0,0">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="#1E293B"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding OverallSecurityHealth}" Value="Healthy">
+                                                        <Setter Property="Background" Value="#065F46"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding OverallSecurityHealth}" Value="Warning">
+                                                        <Setter Property="Background" Value="#78350F"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding OverallSecurityHealth}" Value="Critical">
+                                                        <Setter Property="Background" Value="#7F1D1D"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="{Binding OverallSecurityHealth}" FontWeight="Bold" FontSize="11" Foreground="#FFFFFF"/>
+                                    </Border>
+                                </StackPanel>
+
+                                <!-- Refresh Audit Button -->
+                                <Button Grid.Column="2" Content="🔄  Refresh Security Audit" 
+                                        Command="{Binding RefreshHealthAuditCommand}" 
+                                        Style="{StaticResource ModernButton}" 
+                                        Padding="14,6"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- ========================================== -->
+                        <!-- Row 1: Key State & Security Health Card    -->
+                        <!-- ========================================== -->
+                        <Border Grid.Row="1" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Key State, Ownership &amp; NTFS Permissions" FontSize="15" FontWeight="Bold"/>
+                                            <Border Background="#1E3A8A" CornerRadius="4" Padding="6,2" Margin="10,0,0,0">
+                                                <TextBlock Text="{Binding ActiveRuntimeRole, StringFormat='{}{0} Runtime'}" FontSize="10" Foreground="#93C5FD" FontWeight="Bold"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Text="Validates OpenSSH strict security compliance: file ownership, inheritance, and non-admin isolation." 
+                                                   FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="0,2,0,0"/>
+                                    </StackPanel>
+
+                                    <!-- Quick Actions -->
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                        <Button Content="🛠️  Auto-Repair Permissions" 
+                                                Command="{Binding AutoRepairAclsCommand}" 
+                                                Style="{StaticResource ModernButton}" 
+                                                Foreground="#38BDF8"
+                                                Margin="0,0,8,0" Padding="12,4"
+                                                ToolTip="Enforce Administrators/SYSTEM exclusive ACLs and take ownership via takeown / icacls"/>
+                                        <Button Content="🔑  Auto-Generate Key Pair" 
+                                                Command="{Binding AutoGenerateKeyCommand}" 
+                                                Style="{StaticResource ModernButton}" 
+                                                Foreground="#34D399"
+                                                Padding="12,4"
+                                                ToolTip="Generate a modern Ed25519 key pair with strict ACLs and bind it to current profile"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Key Metadata Grid -->
+                                <Grid Margin="0,4,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="2*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Owner -->
+                                    <Border Grid.Column="0" Background="{StaticResource BgCard}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="10">
+                                        <StackPanel>
+                                            <TextBlock Text="FILE OWNER" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMuted}"/>
+                                            <TextBlock Text="{Binding KeyOwnerText}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- ACL Status -->
+                                    <Border Grid.Column="2" Background="{StaticResource BgCard}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="10">
+                                        <StackPanel>
+                                            <TextBlock Text="NTFS PERMISSION STATUS" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMuted}"/>
+                                            <TextBlock Text="{Binding KeyAclBadgeText}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" Margin="0,4,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Fingerprint -->
+                                    <Border Grid.Column="4" Background="{StaticResource BgCard}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="10">
+                                        <StackPanel>
+                                            <TextBlock Text="KEY FINGERPRINT / ENTRIES" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMuted}"/>
+                                            <TextBlock Text="{Binding KeyFingerprint}" FontFamily="Consolas" FontSize="11" Foreground="#38BDF8" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+
+                                <!-- Audit Details Message -->
+                                <Border Background="#10151C" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="10">
+                                    <TextBlock Text="{Binding KeyHealthSummary}" FontFamily="Consolas" FontSize="11" Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap"/>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ========================================== -->
+                        <!-- Row 2: PowerShell Script Runner (In-GUI)   -->
+                        <!-- ========================================== -->
+                        <Border Grid.Row="2" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="PowerShell Prerequisite &amp; Host Provisioning Runner" FontSize="15" FontWeight="Bold"/>
+                                        <TextBlock Text="Execute setup scripts directly from the GUI to provision OpenSSH, configure firewall rules, and harden ACLs." 
+                                                   FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="0,2,0,0"/>
+                                    </StackPanel>
+
+                                    <!-- Execution Status Indicator -->
+                                    <Border Grid.Column="1" Background="{StaticResource BgCard}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="10,4" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Status: " FontSize="11" Foreground="{StaticResource TextSecondary}"/>
+                                            <TextBlock Text="{Binding ScriptRunStatus}" FontSize="11" FontWeight="Bold" Foreground="#38BDF8"/>
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+
+                                <!-- Script Parameter Controls -->
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <CheckBox Grid.Column="0" Content="Run with Elevated Administrator Privileges (UAC Prompt)" 
+                                              IsChecked="{Binding ElevateScriptExecution}" 
+                                              FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,16,0"/>
+
+                                    <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                                        <TextBlock Text="Destination User:" FontSize="11" Foreground="{StaticResource TextMuted}" Margin="0,0,0,2"/>
+                                        <TextBox Text="{Binding DestinationScriptUser, UpdateSourceTrigger=PropertyChanged}" Height="28" Padding="6,2" FontSize="12"/>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Destination Root Directory:" FontSize="11" Foreground="{StaticResource TextMuted}" Margin="0,0,0,2"/>
+                                        <TextBox Text="{Binding DestinationScriptDirectory, UpdateSourceTrigger=PropertyChanged}" Height="28" Padding="6,2" FontSize="12"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Script Action Buttons Bar -->
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                        <Button Content="▶️  Run Source Setup Script (setup-prerequisites.ps1)" 
+                                                Command="{Binding RunSourceSetupScriptCommand}" 
+                                                Style="{StaticResource ModernButton}" 
+                                                Padding="14,6" Margin="0,0,10,0" Foreground="#38BDF8"
+                                                ToolTip="Installs OpenSSH Client, configures DPAPI and key generation on source"/>
+
+                                        <Button Content="▶️  Run Destination Setup Script (dest_prerequisites.ps1)" 
+                                                Command="{Binding RunDestinationSetupScriptCommand}" 
+                                                Style="{StaticResource ModernButton}" 
+                                                Padding="14,6" Margin="0,0,10,0" Foreground="#34D399"
+                                                ToolTip="Installs OpenSSH Server, opens port 22, authorizes public key, and locks down permissions"/>
+                                    </StackPanel>
+
+                                    <Button Grid.Column="1" Content="Clear Console" 
+                                            Command="{Binding ClearScriptOutputCommand}" 
+                                            Style="{StaticResource ModernButton}" 
+                                            Padding="10,4"/>
+                                </Grid>
+
+                                <!-- Live Terminal Console Box -->
+                                <Border Background="#090D12" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="8">
+                                    <ScrollViewer Height="140" VerticalScrollBarVisibility="Auto">
+                                        <ItemsControl ItemsSource="{Binding ScriptOutputLines}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11" Foreground="#A5F3FC" Margin="0,1"/>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ========================================== -->
+                        <!-- Row 3: Connection Handshake & Telemetry    -->
+                        <!-- ========================================== -->
+                        <Border Grid.Row="3" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Real-Time Connection Handshake &amp; Telemetry Stream" FontSize="15" FontWeight="Bold"/>
+                                        <TextBlock Text="Real-time telemetry stream: Stage transitions, throughput velocity, transferred byte count, and network latency." 
+                                                   FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <Border Grid.Column="1" Background="#1E3A8A" CornerRadius="4" Padding="8,4" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding HandshakeStateDisplay, StringFormat='State: {0}'}" FontSize="11" FontWeight="Bold" Foreground="#93C5FD"/>
+                                    </Border>
+                                </Grid>
+
+                                <!-- Handshake Pipeline Progress Bar / Indicator -->
+                                <Border Background="{StaticResource BgCard}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,12">
+                                    <StackPanel>
+                                        <TextBlock Text="HANDSHAKE LIFECYCLE STAGES" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMuted}" Margin="0,0,0,8"/>
+                                        <UniformGrid Columns="8" HorizontalAlignment="Stretch">
+                                            <TextBlock Text="1. Pre-Flight" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#94A3B8"/>
+                                            <TextBlock Text="2. VSS Snapshot" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#94A3B8"/>
+                                            <TextBlock Text="3. SSH Socket" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#94A3B8"/>
+                                            <TextBlock Text="4. Key Auth" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#94A3B8"/>
+                                            <TextBlock Text="5. SFTP Session" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#94A3B8"/>
+                                            <TextBlock Text="6. Stream Data" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#94A3B8"/>
+                                            <TextBlock Text="7. Remote Hash" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#94A3B8"/>
+                                            <TextBlock Text="8. Verified" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#34D399"/>
+                                        </UniformGrid>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- 4-Card Telemetry Metrics -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="1.5*"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="1*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Metric 1: Throughput -->
+                                    <Border Grid.Column="0" Background="{StaticResource BgCard}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="10">
+                                        <StackPanel>
+                                            <TextBlock Text="TRANSFER VELOCITY" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMuted}"/>
+                                            <TextBlock Text="{Binding TelemetryThroughputText}" FontSize="16" FontWeight="Bold" Foreground="#38BDF8" Margin="0,4,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Metric 2: Bytes Progress -->
+                                    <Border Grid.Column="2" Background="{StaticResource BgCard}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="10">
+                                        <StackPanel>
+                                            <TextBlock Text="BYTES TRANSFERRED" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMuted}"/>
+                                            <TextBlock Text="{Binding TelemetryBytesTransferredText}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" Margin="0,6,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Metric 3: Active Payload -->
+                                    <Border Grid.Column="4" Background="{StaticResource BgCard}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="10">
+                                        <StackPanel>
+                                            <TextBlock Text="ACTIVE PAYLOAD" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMuted}"/>
+                                            <TextBlock Text="{Binding TelemetryActiveFile}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" Margin="0,6,0,0" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Metric 4: Latency & Status -->
+                                    <Border Grid.Column="6" Background="{StaticResource BgCard}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="6" Padding="10">
+                                        <StackPanel>
+                                            <TextBlock Text="PROBE LATENCY" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMuted}"/>
+                                            <TextBlock Text="{Binding TelemetryLatencyMs, StringFormat='{}{0} ms'}" FontSize="16" FontWeight="Bold" Foreground="#F59E0B" Margin="0,4,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ========================================== -->
+                        <!-- Row 4: Cryptographic Payload Matrix        -->
+                        <!-- ========================================== -->
+                        <Border Grid.Row="4" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,16">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Matrix Header -->
+                                <Grid Grid.Row="0" Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Cryptographic Payload Integrity &amp; Parity Matrix" FontSize="15" FontWeight="Bold"/>
+                                        <TextBlock Text="Automated two-step post-transfer verification: local SHA-256 vs destination hash and exact byte size parity." 
+                                                   FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="0,2,0,0"/>
+                                    </StackPanel>
+
+                                    <Button Grid.Column="1" Content="📄  Export Verification Certificate" 
+                                            Command="{Binding ExportIntegrityReportCommand}" 
+                                            Style="{StaticResource ModernButton}" 
+                                            Padding="14,6" Foreground="#38BDF8"/>
+                                </Grid>
+
+                                <!-- Matrix ListView -->
+                                <ListView Grid.Row="1" 
+                                          ItemsSource="{Binding TransferQueue}" 
+                                          Background="Transparent" 
+                                          BorderBrush="{StaticResource BorderDark}" 
+                                          BorderThickness="1"
+                                          MaxHeight="260">
+                                    <ListView.View>
+                                        <GridView>
+                                            <!-- File Name -->
+                                            <GridViewColumn Header="File Name" Width="180">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                            <Border Visibility="{Binding IsQuickBooksFile, Converter={StaticResource BoolToVisConverter}}" 
+                                                                    Background="#047857" CornerRadius="3" Padding="4,1" Margin="0,0,6,0">
+                                                                <TextBlock Text="QB" FontSize="9" FontWeight="Bold" Foreground="#A7F3D0"/>
+                                                            </Border>
+                                                            <TextBlock Text="{Binding FileName}" Foreground="{StaticResource TextPrimary}" FontWeight="SemiBold" ToolTip="{Binding LocalFilePath}"/>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+
+                                            <!-- Local Size -->
+                                            <GridViewColumn Header="Local Size" Width="90" DisplayMemberBinding="{Binding FormattedSize}"/>
+
+                                            <!-- Remote Size -->
+                                            <GridViewColumn Header="Remote Size" Width="90" DisplayMemberBinding="{Binding FormattedRemoteSize}"/>
+
+                                            <!-- Parity Badge -->
+                                            <GridViewColumn Header="Byte Parity" Width="120">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left">
+                                                            <Border.Style>
+                                                                <Style TargetType="Border">
+                                                                    <Setter Property="Background" Value="#1E293B"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsSizeMatch}" Value="True">
+                                                                            <Setter Property="Background" Value="#065F46"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Border.Style>
+                                                            <TextBlock Text="{Binding SizeParityText}" FontSize="10" FontWeight="SemiBold">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock">
+                                                                        <Setter Property="Foreground" Value="#94A3B8"/>
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsSizeMatch}" Value="True">
+                                                                                <Setter Property="Foreground" Value="#A7F3D0"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+
+                                            <!-- Local SHA-256 -->
+                                            <GridViewColumn Header="Local SHA-256" Width="140">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding LocalSha256}" 
+                                                                   FontFamily="Consolas" FontSize="10" 
+                                                                   Foreground="{StaticResource TextSecondary}" 
+                                                                   TextTrimming="CharacterEllipsis" 
+                                                                   ToolTip="{Binding LocalSha256}"/>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+
+                                            <!-- Remote SHA-256 -->
+                                            <GridViewColumn Header="Destination SHA-256" Width="140">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding RemoteSha256}" 
+                                                                   FontFamily="Consolas" FontSize="10" 
+                                                                   Foreground="{StaticResource TextSecondary}" 
+                                                                   TextTrimming="CharacterEllipsis" 
+                                                                   ToolTip="{Binding RemoteSha256}"/>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+
+                                            <!-- Integrity Status -->
+                                            <GridViewColumn Header="Integrity Verification" Width="130">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <controls:ValidationBadge Status="{Binding HashStatus}" ToolTip="{Binding StatusMessage}"/>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+                                        </GridView>
+                                    </ListView.View>
+                                </ListView>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Tab 4: Real-Time Activity Log -->
+            <TabItem Header="  Activity Log  ">
+                <Grid Margin="0,10,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Real-Time Operation &amp; Audit Log" FontWeight="Bold" FontSize="14"/>
+                            <TextBlock Text="Detailed cryptographic and networking execution log with timestamps." FontSize="11" Foreground="{StaticResource TextSecondary}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button Content="Open Log File" Command="{Binding OpenLogFileCommand}" Style="{StaticResource ModernButton}" Margin="0,0,8,0" Padding="12,4"/>
+                            <Button Content="Copy All" Command="{Binding CopyLogsCommand}" Style="{StaticResource ModernButton}" Margin="0,0,8,0" Padding="12,4"/>
+                            <Button Content="Clear" Command="{Binding ClearLogsCommand}" Style="{StaticResource ModernButton}" Padding="12,4"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Log Items -->
+                    <Border Grid.Row="1" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="8">
+                        <ListBox ItemsSource="{Binding ActivityLogs}" Background="Transparent" BorderThickness="0">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140"/>
+                                            <ColumnDefinition Width="70"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Grid.Column="0" Text="{Binding Timestamp, StringFormat='yyyy-MM-dd HH:mm:ss'}" 
+                                                   FontFamily="Consolas" FontSize="11" Foreground="{StaticResource TextMuted}"/>
+
+                                        <Border Grid.Column="1" CornerRadius="3" Padding="4,1" HorizontalAlignment="Left">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="#334155"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Level}" Value="SUCCESS">
+                                                            <Setter Property="Background" Value="#065F46"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Level}" Value="WARN">
+                                                            <Setter Property="Background" Value="#78350F"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Level}" Value="ERROR">
+                                                            <Setter Property="Background" Value="#7F1D1D"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock Text="{Binding Level}" FontSize="9" FontWeight="Bold" Foreground="White"/>
+                                        </Border>
+
+                                        <TextBlock Grid.Column="2" Text="{Binding Message}" 
+                                                   FontFamily="Consolas" FontSize="11" 
+                                                   Foreground="{StaticResource TextPrimary}" 
+                                                   TextWrapping="Wrap"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <!-- ========================================== -->
+        <!-- Bottom Status Bar                          -->
+        <!-- ========================================== -->
+        <Border Grid.Row="2" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="0,1,0,0" Padding="14,6">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Status: " FontSize="11" Foreground="{StaticResource TextSecondary}"/>
+                    <TextBlock Text="{Binding StatusMessage}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Background="#1E293B" CornerRadius="4" Padding="6,2" Margin="0,0,8,0">
+                        <TextBlock Text=".NET 8 LTS (WPF)" FontSize="10" Foreground="#94A3B8"/>
+                    </Border>
+                    <Border Background="#064E3B" CornerRadius="4" Padding="6,2">
+                        <TextBlock Text="Windows 11 / Server 2019" FontSize="10" Foreground="#6EE7B7"/>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

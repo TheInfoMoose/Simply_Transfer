@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <!-- 
+      Redirect intermediate obj artifacts to a local physical drive (%TEMP%) 
+      to prevent Windows MemoryMappedFile 'user-mapped section open' errors 
+      when building inside virtual/cloud-synced filesystems (e.g. Google Drive, network mounts).
+    -->
+    <_RealProjectName>$(MSBuildProjectName)</_RealProjectName>
+    <_RealProjectName Condition="$(MSBuildProjectName.EndsWith('_wpftmp'))">$([System.Text.RegularExpressions.Regex]::Replace('$(MSBuildProjectName)', '_[^_]+_wpftmp$', ''))</_RealProjectName>
+    <BaseIntermediateOutputPath Condition="'$(LOCALAPPDATA)' != ''">$(LOCALAPPDATA)\Temp\SimplyTransferBuild\obj\$(_RealProjectName)\</BaseIntermediateOutputPath>
+    <BaseIntermediateOutputPath Condition="'$(LOCALAPPDATA)' == '' and '$(TEMP)' != ''">$(TEMP)\SimplyTransferBuild\obj\$(_RealProjectName)\</BaseIntermediateOutputPath>
+    <BaseIntermediateOutputPath Condition="'$(BaseIntermediateOutputPath)' == ''">obj\$(_RealProjectName)\</BaseIntermediateOutputPath>
+    <MSBuildProjectExtensionsPath>$(BaseIntermediateOutputPath)</MSBuildProjectExtensionsPath>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+</Project>
