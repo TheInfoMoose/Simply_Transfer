@@ -12,7 +12,6 @@ if (-not $DestinationHost -or -not $DestinationUser -or -not $DestinationDirecto
     exit 1
 }
 
-$sourceDir = $PSScriptRoot
 $destUri = "${DestinationUser}@${DestinationHost}:${DestinationDirectory}/SimplyTransfer"
 
 Write-Host "Deploying Simply Transfer to $DestinationHost..." -ForegroundColor Cyan
