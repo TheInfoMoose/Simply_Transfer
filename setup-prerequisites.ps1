@@ -170,13 +170,11 @@ $statusReport = [ordered]@{}
 
 Write-Step "1/8" "Checking OpenSSH Client..."
 
-$sshClientInstalled = $false
 $sshCmd = Get-Command "ssh.exe" -ErrorAction SilentlyContinue
 $sftpCmd = Get-Command "sftp.exe" -ErrorAction SilentlyContinue
 $keygenCmd = Get-Command "ssh-keygen.exe" -ErrorAction SilentlyContinue
 
 if ($sshCmd -and $sftpCmd -and $keygenCmd) {
-    $sshClientInstalled = $true
     Write-Success "OpenSSH Client tools found: $($sshCmd.Source)"
     $statusReport["OpenSSH Client"] = "Installed ($($sshCmd.Source))"
 }
@@ -186,7 +184,6 @@ else {
             Write-Info "Installing OpenSSH Client capability via DISM / Windows Capability..."
             try {
                 Add-WindowsCapability -Online -Name "OpenSSH.Client~~~~0.0.1.0" -ErrorAction Stop | Out-Null
-                $sshClientInstalled = $true
                 Write-Success "OpenSSH Client successfully installed."
                 $statusReport["OpenSSH Client"] = "Installed via Windows Capability"
             }
