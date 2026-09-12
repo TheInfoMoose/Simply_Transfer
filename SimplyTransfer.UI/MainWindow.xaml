@@ -151,6 +151,9 @@
                                         <Border Background="#312E81" CornerRadius="4" Padding="6,2" Margin="10,0,0,0">
                                             <TextBlock Text="Multi-Select" FontSize="10" Foreground="#A5B4FC" FontWeight="SemiBold"/>
                                         </Border>
+                                        <Button Margin="10,0,0,0" Padding="8,2" Command="{Binding RefreshFileBrowserCommand}" Style="{StaticResource ModernButton}" ToolTip="Refresh file list">
+                                            <TextBlock Text="🔄 Refresh" FontSize="11"/>
+                                        </Button>
                                     </StackPanel>
                                     <TextBlock Text="Select files or folders. QuickBooks files (.qbw/.tlg) are highlighted for atomic VSS snapshots." 
                                                FontSize="11" Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0"/>
@@ -846,17 +849,17 @@
                                     </Grid.ColumnDefinitions>
 
                                     <StackPanel Grid.Column="0" Orientation="Horizontal">
-                                        <Button Content="▶️  Run Source Setup Script (setup-prerequisites.ps1)" 
+                                        <Button Content="▶️  Run Setup Script &amp; Generate Destination Config" 
                                                 Command="{Binding RunSourceSetupScriptCommand}" 
                                                 Style="{StaticResource ModernButton}" 
                                                 Padding="14,6" Margin="0,0,10,0" Foreground="#38BDF8"
-                                                ToolTip="Installs OpenSSH Client, configures DPAPI and key generation on source"/>
+                                                ToolTip="Installs OpenSSH Client, generates SSH keys, and creates destination config"/>
 
-                                        <Button Content="▶️  Run Destination Setup Script (dest_prerequisites.ps1)" 
+                                        <Button Content="🚀  Deploy App to Destination" 
                                                 Command="{Binding RunDestinationSetupScriptCommand}" 
                                                 Style="{StaticResource ModernButton}" 
                                                 Padding="14,6" Margin="0,0,10,0" Foreground="#34D399"
-                                                ToolTip="Installs OpenSSH Server, opens port 22, authorizes public key, and locks down permissions"/>
+                                                ToolTip="Deploys Simply Transfer to the remote destination server for destination tracking"/>
                                     </StackPanel>
 
                                     <Button Grid.Column="1" Content="Clear Console" 

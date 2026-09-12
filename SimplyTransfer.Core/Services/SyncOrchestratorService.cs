@@ -647,6 +647,16 @@ namespace SimplyTransfer.Core.Services
                     item.ProgressPercentage = 0;
                     ItemProgressUpdated?.Invoke(this, item);
 
+                    // Write status file to destination for tracking
+                    try
+                    {
+                        string statusFile = CombineUnixPath(profile.DestinationDirectory, ".sync-status.json");
+                        string statusJson = $"{{\n  \"CurrentFile\": \"{item.FileName}\",\n  \"Progress\": 0,\n  \"TransferredBytes\": {transferredBytesTotal},\n  \"TotalBytes\": {totalBytes}\n}}";
+                        using var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(statusJson));
+                        await sftpService.UploadStreamAsync(ms, statusFile, null, cancellationToken);
+                    }
+                    catch { /* Ignore status write errors */ }
+
                     Stream? fileStream = null;
                     try
                     {
@@ -695,12 +705,23 @@ namespace SimplyTransfer.Core.Services
 
                                 UpdateTelemetry(ConnectionHandshakeState.StreamingPayload, $"Uploading {item.FileName} ({speed / (1024.0 * 1024.0):F2} MB/s)", item.FileName, curTotal, totalBytes, speed, 0, idx + 1, items.Count);
                                 ItemProgressUpdated?.Invoke(this, item);
+
+                                // Periodically update status file to destination for tracking (every few MBs or so, but let's keep it simple and just do it occasionally, or omit to avoid spamming SFTP. Actually, we can update it on completion of the file).
                             },
                             cancellationToken);
 
                         transferredBytesTotal += item.FileSizeBytes;
                         item.ProgressPercentage = 100.0;
                         Log($"[SFTP] Uploaded '{item.FileName}' to '{remoteTarget}'.", "SUCCESS");
+
+                        try
+                        {
+                            string statusFile = CombineUnixPath(profile.DestinationDirectory, ".sync-status.json");
+                            string statusJson = $"{{\n  \"CurrentFile\": \"{item.FileName}\",\n  \"Progress\": 100,\n  \"TransferredBytes\": {transferredBytesTotal},\n  \"TotalBytes\": {totalBytes}\n}}";
+                            using var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(statusJson));
+                            await sftpService.UploadStreamAsync(ms, statusFile, null, cancellationToken);
+                        }
+                        catch { /* Ignore */ }
 
                         // Two-step automated SHA-256 and byte parity verification
                         item.Status = TransferStatus.Validating;

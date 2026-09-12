@@ -672,6 +672,25 @@ namespace SimplyTransfer.UI.ViewModels
             }
         }
 
+        /// <summary>
+        /// Refreshes the local file browser tree to reflect newly added or deleted files.
+        /// </summary>
+        [RelayCommand]
+        public void RefreshFileBrowser()
+        {
+            try
+            {
+                StatusMessage = "Refreshing local file browser...";
+                FileBrowser.LoadDrives();
+                StatusMessage = "File browser refreshed.";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Failed to refresh file browser: {ex.Message}";
+                _logger.LogError("Error refreshing file browser", ex);
+            }
+        }
+
         #endregion
 
         #region Profile Management
@@ -1110,6 +1129,88 @@ namespace SimplyTransfer.UI.ViewModels
             {
                 IsAuditingHealth = false;
             }
+
+            if (IsDestinationMode)
+            {
+                StartDestinationTracking();
+            }
+            else
+            {
+                StopDestinationTracking();
+            }
+        }
+
+        private CancellationTokenSource? _destinationTrackingCts;
+
+        private void StartDestinationTracking()
+        {
+            StopDestinationTracking();
+            _destinationTrackingCts = new CancellationTokenSource();
+            _ = Task.Run(async () =>
+            {
+                while (!_destinationTrackingCts.Token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        if (SelectedProfile != null && !string.IsNullOrEmpty(SelectedProfile.DestinationDirectory))
+                        {
+                            string statusFile = Path.Combine(SelectedProfile.DestinationDirectory, ".sync-status.json");
+                            if (File.Exists(statusFile))
+                            {
+                                string json = await File.ReadAllTextAsync(statusFile);
+                                // Very simple manual parsing for robustness (or use JsonSerializer if available)
+                                var currentFileMatch = System.Text.RegularExpressions.Regex.Match(json, "\"CurrentFile\":\\s*\"(.*?)\"");
+                                var progressMatch = System.Text.RegularExpressions.Regex.Match(json, "\"Progress\":\\s*(\\d+)");
+                                var transferredMatch = System.Text.RegularExpressions.Regex.Match(json, "\"TransferredBytes\":\\s*(\\d+)");
+                                var totalMatch = System.Text.RegularExpressions.Regex.Match(json, "\"TotalBytes\":\\s*(\\d+)");
+
+                                Application.Current?.Dispatcher.InvokeAsync(() =>
+                                {
+                                    if (currentFileMatch.Success) TelemetryActiveFile = currentFileMatch.Groups[1].Value;
+                                    if (transferredMatch.Success && totalMatch.Success)
+                                    {
+                                        long trans = long.Parse(transferredMatch.Groups[1].Value);
+                                        long total = long.Parse(totalMatch.Groups[1].Value);
+                                        TelemetryBytesTransferredText = $"{TransferItem.FormatSize(trans)} / {TransferItem.FormatSize(total)}";
+                                        
+                                        if (total > 0)
+                                        {
+                                            OverallProgress = (double)trans / total * 100.0;
+                                        }
+                                    }
+                                    
+                                    if (progressMatch.Success)
+                                    {
+                                        int prog = int.Parse(progressMatch.Groups[1].Value);
+                                        if (prog == 100)
+                                        {
+                                            TelemetryStatusText = "Transfer Complete";
+                                            HandshakeStateDisplay = "PayloadVerified";
+                                        }
+                                        else
+                                        {
+                                            TelemetryStatusText = "Receiving Transfer...";
+                                            HandshakeStateDisplay = "StreamingPayload";
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                    catch { }
+                    await Task.Delay(2000, _destinationTrackingCts.Token);
+                }
+            }, _destinationTrackingCts.Token);
+        }
+
+        private void StopDestinationTracking()
+        {
+            if (_destinationTrackingCts != null)
+            {
+                _destinationTrackingCts.Cancel();
+                _destinationTrackingCts.Dispose();
+                _destinationTrackingCts = null;
+            }
         }
 
         /// <summary>
@@ -1193,29 +1294,29 @@ namespace SimplyTransfer.UI.ViewModels
         [RelayCommand]
         public async Task RunSourceSetupScriptAsync()
         {
-            await ExecuteScriptInternalAsync("setup-prerequisites.ps1", ElevateScriptExecution ? "-Elevate" : string.Empty);
+            string args = ElevateScriptExecution ? "-Elevate -NonInteractive -GenerateDestConfig" : "-NonInteractive -GenerateDestConfig";
+            await ExecuteScriptInternalAsync("setup-prerequisites.ps1", args);
         }
 
         /// <summary>
-        /// Executes the Destination Setup script directly from the GUI with configured parameters.
-        /// Fulfills requirement: scripts for source and destination runnable from GUI.
+        /// Executes the Destination Deployment script directly from the GUI.
+        /// Deploys the Simply Transfer application to the destination host.
         /// </summary>
         [RelayCommand]
         public async Task RunDestinationSetupScriptAsync()
         {
-            string pubKeyArg = !string.IsNullOrWhiteSpace(AssociatedPublicKey) 
-                ? $"-ClientPublicKey \"{AssociatedPublicKey}\"" 
+            string hostArg = !string.IsNullOrWhiteSpace(SelectedProfile?.Host) 
+                ? $"-DestinationHost \"{SelectedProfile.Host}\"" 
                 : string.Empty;
-            string userArg = !string.IsNullOrWhiteSpace(DestinationScriptUser) 
-                ? $"-DestinationUser \"{DestinationScriptUser}\"" 
+            string userArg = !string.IsNullOrWhiteSpace(SelectedProfile?.Username) 
+                ? $"-DestinationUser \"{SelectedProfile.Username}\"" 
                 : string.Empty;
-            string dirArg = !string.IsNullOrWhiteSpace(DestinationScriptDirectory) 
-                ? $"-DestinationDirectory \"{DestinationScriptDirectory}\"" 
+            string dirArg = !string.IsNullOrWhiteSpace(SelectedProfile?.DestinationDirectory) 
+                ? $"-DestinationDirectory \"{SelectedProfile.DestinationDirectory}\"" 
                 : string.Empty;
-            string elevateArg = ElevateScriptExecution ? "-Elevate" : string.Empty;
 
-            string fullArgs = $"{pubKeyArg} {userArg} {dirArg} {elevateArg}".Trim();
-            await ExecuteScriptInternalAsync("dest_prerequisites.ps1", fullArgs);
+            string fullArgs = $"{hostArg} {userArg} {dirArg} -NonInteractive".Trim();
+            await ExecuteScriptInternalAsync("deploy-app-to-dest.ps1", fullArgs);
         }
 
         private async Task ExecuteScriptInternalAsync(string scriptName, string args)

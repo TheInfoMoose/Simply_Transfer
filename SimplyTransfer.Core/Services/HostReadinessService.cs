@@ -549,7 +549,7 @@ namespace SimplyTransfer.Core.Services
         {
             return await Task.Run(() =>
             {
-                var iss = System.Management.Automation.Runspaces.InitialSessionState.CreateDefault2();
+                var iss = System.Management.Automation.Runspaces.InitialSessionState.CreateDefault();
                 iss.ExecutionPolicy = Microsoft.PowerShell.ExecutionPolicy.Bypass;
                 using var ps = PowerShell.Create(iss);
 
@@ -612,7 +612,12 @@ namespace SimplyTransfer.Core.Services
                 }
                 catch (Exception ex)
                 {
-                    outputHandler?.Invoke($"[SDK-ERROR] Execution failed: {ex.Message}");
+                    string err = $"[SDK-ERROR] Execution failed: {ex.Message}";
+                    if (ex.InnerException != null)
+                    {
+                        err += $"\nInner Exception: {ex.InnerException.Message}";
+                    }
+                    outputHandler?.Invoke(err);
                     _logger.LogError("PowerShell SDK execution exception", ex);
                     return 1;
                 }
