@@ -407,7 +407,8 @@ if ($activeKey) {
 
 if ($GenerateDestConfig) {
     Write-Step "8b" "Generating Destination Configuration"
-    $destConfigPath = Join-Path $PSScriptRoot "deploy-to-remote-dest.ps1"
+    $outDir = if ($PSScriptRoot) { $PSScriptRoot } else { $PWD.Path }
+    $destConfigPath = Join-Path $outDir "deploy-to-remote-dest.ps1"
     
     $pubKey = ""
     $defaultKey = $activeKey
@@ -485,7 +486,8 @@ if (-not $dotnetCmd -and (Test-Path "C:\Program Files\dotnet\dotnet.exe")) {
 }
 
 if ($dotnetCmd) {
-    $runtimes = & $dotnetCmd.FullName --list-runtimes 2>&1
+    $cmdPath = if ($dotnetCmd.Source) { $dotnetCmd.Source } elseif ($dotnetCmd.FullName) { $dotnetCmd.FullName } else { $dotnetCmd.Path }
+    $runtimes = & $cmdPath --list-runtimes 2>&1
     if ($runtimes -match "Microsoft\.WindowsDesktop\.App\s+8\.") {
         $desktopRuntimeFound = $true
         Write-Success ".NET 8 Windows Desktop Runtime detected via dotnet CLI."
@@ -669,7 +671,7 @@ else {
 
 Write-Step "6/8" "Checking Simply Transfer Application Deployment..."
 
-$scriptDir = Split-Path -Parent $PSCommandPath
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { $PWD.Path }
 $publishedDir = Join-Path $scriptDir "publish\SimplyTransfer-x64"
 $standaloneDir = Join-Path $scriptDir "publish\SimplyTransfer-x64-Standalone"
 $chosenExe = $null

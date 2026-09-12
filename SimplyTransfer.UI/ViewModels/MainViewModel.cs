@@ -1271,6 +1271,24 @@ namespace SimplyTransfer.UI.ViewModels
             }
         }
 
+        [RelayCommand]
+        public async Task ResetSecurityKeysAsync()
+        {
+            if (IsAuditingHealth) return;
+            try
+            {
+                StatusMessage = "Resetting security keys (this will delete local SSH keys)...";
+                await ExecuteScriptInternalAsync("Remove-SecurityKeys.ps1", "-NonInteractive");
+                await RefreshHealthAuditAsync();
+                StatusMessage = "Security keys have been reset.";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = "Key reset failed.";
+                _logger.LogError("Failed to reset keys", ex);
+            }
+        }
+
         /// <summary>
         /// Executes the Source Setup script directly from the GUI with optional Administrator elevation.
         /// Fulfills requirement: scripts for source and destination runnable from GUI.

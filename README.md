@@ -101,7 +101,7 @@ To be run **after** `setup-prerequisites.ps1` to configure the destination host 
 .\dest_prerequisites.ps1 -Elevate
 
 # Or configure destination for a specific user and directory:
-.\dest_prerequisites.ps1 -DestinationUser "TS" -DestinationDirectory "C:\Backups" -Elevate
+.\dest_prerequisites.ps1 -DestinationUser "AdminUser" -DestinationDirectory "C:\Backups" -Elevate
 
 # Or authorize a specific client public key string on the destination:
 .\dest_prerequisites.ps1 -ClientPublicKey "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5..." -Elevate
