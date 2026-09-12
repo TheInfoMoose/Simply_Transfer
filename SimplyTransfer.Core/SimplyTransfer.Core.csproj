@@ -19,8 +19,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="..\setup-prerequisites.ps1" Link="Scripts\setup-prerequisites.ps1" />
-    <EmbeddedResource Include="..\dest_prerequisites.ps1" Link="Scripts\dest_prerequisites.ps1" />
-    <EmbeddedResource Include="..\dest-prerequisites.ps1" Link="Scripts\dest-prerequisites.ps1" />
+    <EmbeddedResource Include="..\deploy-app-to-dest.ps1" Link="Scripts\deploy-app-to-dest.ps1" />
   </ItemGroup>
 
 </Project>

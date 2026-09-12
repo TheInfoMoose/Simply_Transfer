@@ -120,19 +120,6 @@ namespace SimplyTransfer.Tests
             Assert.Equal("Ready", vm.ScriptRunStatus);
         }
 
-        [Fact]
-        public async Task HostReadinessService_RunScriptAsync_ResolvesAndExecutesInProcess()
-        {
-            var readinessService = new HostReadinessService();
-            var outputLines = new System.Collections.Generic.List<string>();
 
-            int exitCode = await readinessService.RunScriptAsync(
-                "dest-prerequisites.ps1",
-                "-NoPause",
-                elevate: false,
-                outputHandler: line => outputLines.Add(line));
-
-            Assert.True(outputLines.Count > 0);
-        }
     }
 }

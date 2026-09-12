@@ -70,6 +70,8 @@ namespace SimplyTransfer.UI.ViewModels
         [ObservableProperty]
         private string _keyAclBadgeText = "Auditing...";
 
+        private bool _hasAutoRunPrerequisites = false;
+
         [ObservableProperty]
         private string _keyOwnerText = "Unknown";
 
@@ -1128,6 +1130,18 @@ namespace SimplyTransfer.UI.ViewModels
             finally
             {
                 IsAuditingHealth = false;
+            }
+
+            if (!IsDestinationMode && SourceHealthReport != null && !_hasAutoRunPrerequisites)
+            {
+                if (!SourceHealthReport.OpenSshClientInstalled || !SourceHealthReport.KeyPairExists)
+                {
+                    _hasAutoRunPrerequisites = true;
+                    Application.Current?.Dispatcher.InvokeAsync(async () =>
+                    {
+                        await RunSourceSetupScriptAsync();
+                    });
+                }
             }
 
             if (IsDestinationMode)

@@ -523,10 +523,21 @@
                                             Style="{StaticResource ModernButton}" 
                                             Padding="16,6" Margin="0,0,10,0" Foreground="#38BDF8"/>
 
+                                    <Button Content="🔑  Auto-Generate Key" 
+                                            Command="{Binding AutoGenerateKeyCommand}" 
+                                            Style="{StaticResource ModernButton}" 
+                                            Padding="14,6" Margin="0,0,10,0" Foreground="#A78BFA"/>
+
                                     <Button Content="📖  Key Guide" 
                                             Command="{Binding ShowKeyInstructionsCommand}" 
                                             Style="{StaticResource ModernButton}" 
-                                            Padding="14,6" Foreground="#34D399"/>
+                                            Padding="14,6" Margin="0,0,10,0" Foreground="#34D399"/>
+
+                                    <Button Content="🗑️  Reset Keys" 
+                                            Command="{Binding ResetSecurityKeysCommand}" 
+                                            Style="{StaticResource ModernButton}" 
+                                            Padding="14,6" Foreground="#F87171"
+                                            ToolTip="Delete local SSH keys and clear known hosts to reset security posture"/>
                                 </StackPanel>
                             </StackPanel>
                         </Border>
@@ -855,11 +866,17 @@
                                                 Padding="14,6" Margin="0,0,10,0" Foreground="#38BDF8"
                                                 ToolTip="Installs OpenSSH Client, generates SSH keys, and creates destination config"/>
 
-                                        <Button Content="🚀  Deploy App to Destination" 
+                                        <Button Content="📦  Generate Destination Package" 
+                                                Command="{Binding GenerateDestinationPackageCommand}" 
+                                                Style="{StaticResource ModernButton}" 
+                                                Padding="14,6" Margin="0,0,10,0" Foreground="#A78BFA"
+                                                ToolTip="Bundles the app, configuration profile, and public key into a portable zip file for manual transfer to the destination server"/>
+
+                                        <Button Content="🚀  Deploy App via SFTP" 
                                                 Command="{Binding RunDestinationSetupScriptCommand}" 
                                                 Style="{StaticResource ModernButton}" 
                                                 Padding="14,6" Margin="0,0,10,0" Foreground="#34D399"
-                                                ToolTip="Deploys Simply Transfer to the remote destination server for destination tracking"/>
+                                                ToolTip="Deploys Simply Transfer to the remote destination server for destination tracking automatically via SFTP"/>
                                     </StackPanel>
 
                                     <Button Grid.Column="1" Content="Clear Console" 

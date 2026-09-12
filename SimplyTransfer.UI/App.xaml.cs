@@ -74,12 +74,49 @@ namespace SimplyTransfer.UI
             _logger.LogInfo("Service container built successfully. Presenting MainWindow.");
             var mainWindow = ServiceProvider.GetRequiredService<MainWindow>();
 
-            if (e.Args.Any(a => a.Equals("--mode", StringComparison.OrdinalIgnoreCase) || a.Equals("-Mode", StringComparison.OrdinalIgnoreCase)))
+            string localProfilePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profile.json");
+            bool isPackagedDestination = System.IO.File.Exists(localProfilePath);
+            var vm = mainWindow.DataContext as MainViewModel;
+
+            if (isPackagedDestination)
+            {
+                var configService = ServiceProvider.GetRequiredService<ConfigurationService>();
+                var imported = configService.ImportProfile(localProfilePath);
+
+                if (imported != null)
+                {
+                    var profiles = configService.LoadProfiles();
+                    if (!System.Linq.Enumerable.Any(profiles, p => p.Id == imported.Id))
+                    {
+                        profiles.Add(imported);
+                        configService.SaveProfiles(profiles);
+                    }
+                    if (vm != null) 
+                    {
+                        vm.Profiles = new System.Collections.ObjectModel.ObservableCollection<SimplyTransfer.Core.Models.SyncProfile>(profiles);
+                        vm.SelectedProfile = System.Linq.Enumerable.FirstOrDefault(vm.Profiles, p => p.Id == imported.Id) ?? imported;
+                    }
+                }
+
+                if (vm != null)
+                {
+                    vm.SwitchRuntimeRole("Destination");
+                    
+                    _ = Task.Run(async () => 
+                    {
+                        await Task.Delay(1000);
+                        Application.Current.Dispatcher.Invoke(() => 
+                        {
+                            _ = vm.ApplyPackagedDestinationSetupAsync();
+                        });
+                    });
+                }
+            }
+            else if (e.Args.Length > 0)
             {
                 int idx = Array.FindIndex(e.Args, a => a.Equals("--mode", StringComparison.OrdinalIgnoreCase) || a.Equals("-Mode", StringComparison.OrdinalIgnoreCase));
                 if (idx >= 0 && idx < e.Args.Length - 1 && e.Args[idx + 1].Equals("destination", StringComparison.OrdinalIgnoreCase))
                 {
-                    var vm = mainWindow.DataContext as MainViewModel;
                     if (vm != null) vm.SwitchRuntimeRole("Destination");
                 }
             }

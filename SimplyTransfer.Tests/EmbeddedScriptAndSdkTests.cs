@@ -13,18 +13,10 @@ namespace SimplyTransfer.Tests
         public void EmbeddedScripts_AreCompiledIntoAssemblyResources()
         {
             string? setupScript = HostReadinessService.GetEmbeddedScriptContent("setup-prerequisites.ps1");
-            string? destScript = HostReadinessService.GetEmbeddedScriptContent("dest_prerequisites.ps1");
-            string? destScriptHyphen = HostReadinessService.GetEmbeddedScriptContent("dest-prerequisites.ps1");
 
             Assert.False(string.IsNullOrWhiteSpace(setupScript), "setup-prerequisites.ps1 was not found in embedded assembly resources.");
             Assert.Contains("param", setupScript, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("OpenSSH", setupScript, StringComparison.OrdinalIgnoreCase);
-
-            Assert.False(string.IsNullOrWhiteSpace(destScript), "dest_prerequisites.ps1 was not found in embedded assembly resources.");
-            Assert.Contains("param", destScript, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("administrators_authorized_keys", destScript, StringComparison.OrdinalIgnoreCase);
-
-            Assert.False(string.IsNullOrWhiteSpace(destScriptHyphen), "dest-prerequisites.ps1 was not found in embedded assembly resources.");
         }
 
         [Fact]
@@ -51,22 +43,6 @@ Write-Output 'Pipeline item 2'
             Assert.Contains(outputLines, l => l.Contains("Pipeline item 2"));
         }
 
-        [Fact]
-        public async Task SystemManagementAutomation_InProcessExecution_WithArguments_BindsParameters()
-        {
-            var readinessService = new HostReadinessService();
-            var outputLines = new List<string>();
 
-            // dest_prerequisites.ps1 with -ClientPublicKey, -SkipFirewall, -SkipServiceStart, -NoPause
-            int exitCode = await readinessService.RunScriptAsync(
-                "dest_prerequisites.ps1",
-                "-ClientPublicKey \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGt7yW6G/kCjK2eQ9cE1/jB7iW4uA0Y1hZlGg6p8K2mN SimplyTransfer-Test\" -SkipFirewall -SkipServiceStart -NoPause",
-                elevate: false,
-                outputHandler: line => outputLines.Add(line));
-
-            // Should complete audit without error
-            Assert.True(exitCode == 0, "Output:\n" + string.Join("\n", outputLines));
-            Assert.True(outputLines.Count > 0, "No output was captured from the in-process PowerShell SDK pipeline.");
-        }
     }
 }

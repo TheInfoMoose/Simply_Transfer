@@ -16,11 +16,28 @@ $destUri = "${DestinationUser}@${DestinationHost}:${DestinationDirectory}/Simply
 
 Write-Host "Deploying Simply Transfer to $DestinationHost..." -ForegroundColor Cyan
 
-# Publish the app if the publish directory doesn't exist
-$publishDir = Join-Path $PSScriptRoot "publish"
+# Find the repository root by looking for publish.ps1
+$scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { $PWD.Path }
+$currentDir = $scriptRoot
+while ($currentDir -and (Test-Path $currentDir)) {
+    if (Test-Path (Join-Path $currentDir "publish.ps1")) {
+        $scriptRoot = $currentDir
+        break
+    }
+    $parentDir = Split-Path $currentDir -Parent
+    if ($parentDir -eq $currentDir) { break }
+    $currentDir = $parentDir
+}
+
+$publishDir = Join-Path $scriptRoot "dist\SimplyTransfer-Release"
 if (-not (Test-Path $publishDir)) {
     Write-Host "Publish directory not found. Running publish.ps1..." -ForegroundColor Yellow
-    & (Join-Path $PSScriptRoot "publish.ps1")
+    & (Join-Path $scriptRoot "publish.ps1")
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Publish failed due to errors. Cannot deploy." -ForegroundColor Red
+        if (-not $NonInteractive) { pause }
+        exit 1
+    }
 }
 
 if (-not (Test-Path $publishDir)) {
