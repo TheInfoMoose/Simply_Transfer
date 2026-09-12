@@ -24,7 +24,7 @@
     Skips test execution.
 
 .EXAMPLE
-    .\publish.ps1 -SelfContained
+    .\publish.ps1 -SelfContained:$false
 
 .EXAMPLE
     pwsh ./publish.ps1 -Clean
@@ -32,12 +32,12 @@
 
 [CmdletBinding()]
 param(
-    [switch]$SelfContained = $true,
+    [bool]$SelfContained = $true,
     [string]$OutputDir = "",
     [string]$DotNetPath = "",
     [switch]$Clean = $false,
     [switch]$SkipTests = $false,
-    [switch]$PublishSingleFile = $true
+    [bool]$PublishSingleFile = $true
 )
 
 $ErrorActionPreference = "Stop"
