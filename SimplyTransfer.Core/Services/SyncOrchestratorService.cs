@@ -521,10 +521,17 @@ namespace SimplyTransfer.Core.Services
 
             var activeVssServices = new Dictionary<string, VssSnapshotService>(StringComparer.OrdinalIgnoreCase);
             SftpTransferService? sftpService = null;
+            TelemetrySenderService? telemetrySender = null;
             bool overallSuccess = true;
 
             try
             {
+                try
+                {
+                    telemetrySender = new TelemetrySenderService(profile.Host);
+                }
+                catch { /* Ignore if host is invalid initially */ }
+
                 long totalBytes = items.Sum(i => i.FileSizeBytes);
                 long transferredBytesTotal = 0;
 
@@ -706,7 +713,17 @@ namespace SimplyTransfer.Core.Services
                                 UpdateTelemetry(ConnectionHandshakeState.StreamingPayload, $"Uploading {item.FileName} ({speed / (1024.0 * 1024.0):F2} MB/s)", item.FileName, curTotal, totalBytes, speed, 0, idx + 1, items.Count);
                                 ItemProgressUpdated?.Invoke(this, item);
 
-                                // Periodically update status file to destination for tracking (every few MBs or so, but let's keep it simple and just do it occasionally, or omit to avoid spamming SFTP. Actually, we can update it on completion of the file).
+                                telemetrySender?.SendTelemetry(new TelemetryPacket
+                                {
+                                    Action = "Transferring",
+                                    CurrentFile = item.FileName,
+                                    ProgressPercentage = item.ProgressPercentage,
+                                    BytesTransferred = curTotal,
+                                    TotalBytes = totalBytes,
+                                    TransferSpeedBps = speed,
+                                    ItemIndex = idx + 1,
+                                    TotalItems = items.Count
+                                });
                             },
                             cancellationToken);
 
@@ -749,6 +766,16 @@ namespace SimplyTransfer.Core.Services
                             item.CompletedTime = DateTime.Now;
                             UpdateTelemetry(ConnectionHandshakeState.PayloadVerified, $"✓ Bit-perfect match confirmed for {item.FileName} ({item.FormattedSize}).", item.FileName, transferredBytesTotal, totalBytes, 0, 0, idx + 1, items.Count);
                             Log($"[Verify] ✓ HASH & BYTE PARITY MATCH CONFIRMED for '{item.FileName}'. SHA-256: {item.LocalSha256} | Size: {item.FormattedSize}", "SUCCESS");
+
+                            telemetrySender?.SendTelemetry(new TelemetryPacket
+                            {
+                                Action = "Verified",
+                                CurrentFile = item.FileName,
+                                ProgressPercentage = 100,
+                                BytesTransferred = transferredBytesTotal,
+                                TotalBytes = totalBytes,
+                                StatusMessage = "File Verified Successfully"
+                            });
                         }
                         else if (!hashMatches)
                         {
@@ -820,6 +847,7 @@ namespace SimplyTransfer.Core.Services
                 }
 
                 sftpService?.Dispose();
+                telemetrySender?.Dispose();
 
                 if (profile.UseVpn && profile.DisconnectVpnAfterSync)
                 {

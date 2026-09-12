@@ -1154,76 +1154,46 @@ namespace SimplyTransfer.UI.ViewModels
             }
         }
 
-        private CancellationTokenSource? _destinationTrackingCts;
+        private TelemetryListenerService? _telemetryListener;
 
         private void StartDestinationTracking()
         {
             StopDestinationTracking();
-            _destinationTrackingCts = new CancellationTokenSource();
-            _ = Task.Run(async () =>
+            _telemetryListener = new TelemetryListenerService();
+            _telemetryListener.TelemetryReceived += (s, packet) =>
             {
-                while (!_destinationTrackingCts.Token.IsCancellationRequested)
+                Application.Current?.Dispatcher.InvokeAsync(() =>
                 {
-                    try
+                    TelemetryActiveFile = packet.CurrentFile;
+                    TelemetryBytesTransferredText = $"{TransferItem.FormatSize(packet.BytesTransferred)} / {TransferItem.FormatSize(packet.TotalBytes)}";
+                    
+                    if (packet.TotalBytes > 0)
                     {
-                        if (SelectedProfile != null && !string.IsNullOrEmpty(SelectedProfile.DestinationDirectory))
-                        {
-                            string statusFile = Path.Combine(SelectedProfile.DestinationDirectory, ".sync-status.json");
-                            if (File.Exists(statusFile))
-                            {
-                                string json = await File.ReadAllTextAsync(statusFile);
-                                // Very simple manual parsing for robustness (or use JsonSerializer if available)
-                                var currentFileMatch = System.Text.RegularExpressions.Regex.Match(json, "\"CurrentFile\":\\s*\"(.*?)\"");
-                                var progressMatch = System.Text.RegularExpressions.Regex.Match(json, "\"Progress\":\\s*(\\d+)");
-                                var transferredMatch = System.Text.RegularExpressions.Regex.Match(json, "\"TransferredBytes\":\\s*(\\d+)");
-                                var totalMatch = System.Text.RegularExpressions.Regex.Match(json, "\"TotalBytes\":\\s*(\\d+)");
-
-                                Application.Current?.Dispatcher.InvokeAsync(() =>
-                                {
-                                    if (currentFileMatch.Success) TelemetryActiveFile = currentFileMatch.Groups[1].Value;
-                                    if (transferredMatch.Success && totalMatch.Success)
-                                    {
-                                        long trans = long.Parse(transferredMatch.Groups[1].Value);
-                                        long total = long.Parse(totalMatch.Groups[1].Value);
-                                        TelemetryBytesTransferredText = $"{TransferItem.FormatSize(trans)} / {TransferItem.FormatSize(total)}";
-                                        
-                                        if (total > 0)
-                                        {
-                                            OverallProgress = (double)trans / total * 100.0;
-                                        }
-                                    }
-                                    
-                                    if (progressMatch.Success)
-                                    {
-                                        int prog = int.Parse(progressMatch.Groups[1].Value);
-                                        if (prog == 100)
-                                        {
-                                            TelemetryStatusText = "Transfer Complete";
-                                            HandshakeStateDisplay = "PayloadVerified";
-                                        }
-                                        else
-                                        {
-                                            TelemetryStatusText = "Receiving Transfer...";
-                                            HandshakeStateDisplay = "StreamingPayload";
-                                        }
-                                    }
-                                });
-                            }
-                        }
+                        OverallProgress = (double)packet.BytesTransferred / packet.TotalBytes * 100.0;
                     }
-                    catch { }
-                    await Task.Delay(2000, _destinationTrackingCts.Token);
-                }
-            }, _destinationTrackingCts.Token);
+
+                    if (packet.Action == "Verified")
+                    {
+                        TelemetryStatusText = "Transfer Complete";
+                        HandshakeStateDisplay = "PayloadVerified";
+                    }
+                    else
+                    {
+                        TelemetryStatusText = $"Receiving: {TransferItem.FormatSize((long)packet.TransferSpeedBps)}/s";
+                        HandshakeStateDisplay = "StreamingPayload";
+                    }
+                });
+            };
+            _telemetryListener.StartListening();
         }
 
         private void StopDestinationTracking()
         {
-            if (_destinationTrackingCts != null)
+            if (_telemetryListener != null)
             {
-                _destinationTrackingCts.Cancel();
-                _destinationTrackingCts.Dispose();
-                _destinationTrackingCts = null;
+                _telemetryListener.StopListening();
+                _telemetryListener.Dispose();
+                _telemetryListener = null;
             }
         }
 
@@ -1331,6 +1301,11 @@ namespace SimplyTransfer.UI.ViewModels
 
             string fullArgs = $"{hostArg} {userArg} {dirArg} -NonInteractive".Trim();
             await ExecuteScriptInternalAsync("deploy-app-to-dest.ps1", fullArgs);
+        }
+
+        public async Task ApplyPackagedDestinationSetupAsync()
+        {
+            await ExecuteScriptInternalAsync("setup-prerequisites.ps1", "-Elevate -NonInteractive");
         }
 
         private async Task ExecuteScriptInternalAsync(string scriptName, string args)
