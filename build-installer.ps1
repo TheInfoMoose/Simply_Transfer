@@ -12,7 +12,11 @@ dotnet publish SimplyTransfer.UI/SimplyTransfer.UI.csproj -c $Configuration -r w
 # Check if InnoSetup is installed
 $ISCC = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
 if (-not (Test-Path $ISCC)) {
-    Write-Warning "Inno Setup 6 (ISCC.exe) not found at '$ISCC'. Skipping installer compilation."
+    $ISCC = "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+}
+
+if (-not (Test-Path $ISCC)) {
+    Write-Warning "Inno Setup 6 (ISCC.exe) not found. Skipping installer compilation."
     Write-Host "Publish output is available at: $ScriptDir/dist/publish"
     exit 0
 }
