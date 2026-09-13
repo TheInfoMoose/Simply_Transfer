@@ -1,0 +1,7 @@
+Refactor: Installer fixes, script reorganization, and version tracking
+
+- Reorganized scripts into scripts/build and scripts/utils.
+- Fixed Inno Setup compiler warnings in installer.iss.
+- Updated installer to extract and run setup-prerequisites.ps1 via PowerShell.
+- Added version tracking in Directory.Build.props (v0.1.0-alpha.1) and updated publish/build scripts.
+- Adjusted csproj file to point to new embedded script paths.

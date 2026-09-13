@@ -12,5 +12,6 @@
     <BaseIntermediateOutputPath Condition="'$(BaseIntermediateOutputPath)' == ''">obj\$(_RealProjectName)\</BaseIntermediateOutputPath>
     <MSBuildProjectExtensionsPath>$(BaseIntermediateOutputPath)</MSBuildProjectExtensionsPath>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Version>0.1.0-alpha.1</Version>
   </PropertyGroup>
 </Project>

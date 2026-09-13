@@ -67,7 +67,7 @@ namespace SimplyTransfer.UI
             // Handle CLI flags for automated headless setup or health auditing
             if (e.Args.Length > 0 && ProcessCommandLineArguments(e.Args))
             {
-                Shutdown(0);
+                Environment.Exit(Environment.ExitCode);
                 return;
             }
 
