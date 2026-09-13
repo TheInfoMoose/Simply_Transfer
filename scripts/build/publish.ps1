@@ -32,12 +32,12 @@
 
 [CmdletBinding()]
 param(
-    [bool]$SelfContained = $true,
+    [switch]$SelfContained = $true,
     [string]$OutputDir = "",
     [string]$DotNetPath = "",
     [switch]$Clean = $false,
     [switch]$SkipTests = $false,
-    [bool]$PublishSingleFile = $true
+    [switch]$PublishSingleFile = $true
 )
 
 $ErrorActionPreference = "Stop"

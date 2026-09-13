@@ -102,13 +102,17 @@ namespace SimplyTransfer.UI
                 {
                     vm.SwitchRuntimeRole("Destination");
                     
-                    _ = Task.Run(async () => 
+                    Application.Current.Dispatcher.InvokeAsync(async () => 
                     {
-                        await Task.Delay(1000);
-                        Application.Current.Dispatcher.Invoke(() => 
+                        try
                         {
-                            _ = vm.ApplyPackagedDestinationSetupAsync();
-                        });
+                            await Task.Delay(1000);
+                            await vm.ApplyPackagedDestinationSetupAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.LogError("Packaged destination setup failed", ex);
+                        }
                     });
                 }
             }

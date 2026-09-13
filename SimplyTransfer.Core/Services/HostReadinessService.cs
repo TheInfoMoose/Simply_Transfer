@@ -730,6 +730,13 @@ namespace SimplyTransfer.Core.Services
             {
                 candidate = Path.Combine(current, scriptName);
                 if (File.Exists(candidate)) return candidate;
+                
+                string utilsCandidate = Path.Combine(current, "scripts", "utils", scriptName);
+                if (File.Exists(utilsCandidate)) return utilsCandidate;
+
+                string buildCandidate = Path.Combine(current, "scripts", "build", scriptName);
+                if (File.Exists(buildCandidate)) return buildCandidate;
+
                 current = Directory.GetParent(current)?.FullName;
             }
 

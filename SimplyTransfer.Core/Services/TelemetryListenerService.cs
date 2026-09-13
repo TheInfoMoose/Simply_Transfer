@@ -94,7 +94,7 @@ namespace SimplyTransfer.Core.Services
     public class TelemetrySenderService : IDisposable
     {
         private readonly UdpClient _udpClient;
-        private readonly IPEndPoint _targetEndPoint;
+        private IPEndPoint? _targetEndPoint;
 
         public TelemetrySenderService(string targetHost, int port = 55555)
         {
@@ -105,14 +105,28 @@ namespace SimplyTransfer.Core.Services
             }
             else
             {
-                // Best effort DNS resolution
-                var addresses = Dns.GetHostAddresses(targetHost);
-                _targetEndPoint = new IPEndPoint(addresses[0], port);
+                // Defer DNS resolution to prevent UI stalls and handle failures gracefully
+                _ = ResolveHostAsync(targetHost, port);
             }
+        }
+
+        private async Task ResolveHostAsync(string targetHost, int port)
+        {
+            try
+            {
+                var addresses = await Dns.GetHostAddressesAsync(targetHost);
+                if (addresses != null && addresses.Length > 0)
+                {
+                    _targetEndPoint = new IPEndPoint(addresses[0], port);
+                }
+            }
+            catch { /* Ignore DNS failures */ }
         }
 
         public void SendTelemetry(TelemetryPacket packet)
         {
+            if (_targetEndPoint == null) return;
+
             try
             {
                 string json = JsonSerializer.Serialize(packet);
