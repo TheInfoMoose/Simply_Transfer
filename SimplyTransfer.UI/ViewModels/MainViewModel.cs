@@ -575,7 +575,60 @@ namespace SimplyTransfer.UI.ViewModels
                         string ext = fileInfo.Extension;
                         bool isQb = string.Equals(ext, ".qbw", StringComparison.OrdinalIgnoreCase) ||
                                     string.Equals(ext, ".tlg", StringComparison.OrdinalIgnoreCase) ||
-                                    string.Equals(ext, ".qbb", StringComparison.OrdinalIgnoreCase);
+                                    string.Equals(ext, ".qbb", StringComparison.OrdinalIgnoreCase) ||
+                                    string.Equals(ext, ".nd", StringComparison.OrdinalIgnoreCase) ||
+                                    string.Equals(ext, ".qbm", StringComparison.OrdinalIgnoreCase) ||
+                                    string.Equals(ext, ".qbx", StringComparison.OrdinalIgnoreCase) ||
+                                    string.Equals(ext, ".qby", StringComparison.OrdinalIgnoreCase) ||
+                                    fileInfo.FullName.IndexOf(".qbw\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    fileInfo.FullName.IndexOf(".tlg\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    fileInfo.FullName.IndexOf(".qbb\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    fileInfo.FullName.IndexOf(".nd\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    fileInfo.FullName.IndexOf(".qbm\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    fileInfo.FullName.IndexOf(".qbx\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    fileInfo.FullName.IndexOf(".qby\\", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                        string remoteTarget = fileInfo.Name;
+                        string? rootFolder = SelectedProfile?.SourcePaths?.OrderByDescending(p => p.Length)
+                            .FirstOrDefault(p => fileInfo.FullName.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+                            
+                        // Find the deepest explicitly checked folder in the UI
+                        if (string.IsNullOrEmpty(rootFolder) && FileBrowser != null && FileBrowser.RootNodes != null)
+                        {
+                            var queue = new System.Collections.Generic.Queue<SimplyTransfer.UI.ViewModels.FileNode>(FileBrowser.RootNodes);
+                            int maxLen = -1;
+                            while (queue.Count > 0)
+                            {
+                                var node = queue.Dequeue();
+                                if (node.IsDirectory && node.IsSelected == true && fileInfo.FullName.StartsWith(node.FullPath, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    if (node.FullPath.Length > maxLen)
+                                    {
+                                        maxLen = node.FullPath.Length;
+                                        rootFolder = node.FullPath;
+                                    }
+                                }
+                                // If the node is partially selected (null) or selected (true), check its children
+                                if (node.IsSelected != false && node.Children != null)
+                                {
+                                    foreach (var child in node.Children) queue.Enqueue(child);
+                                }
+                            }
+                        }
+                        
+                        if (!string.IsNullOrEmpty(rootFolder))
+                        {
+                            var dirInfo = new DirectoryInfo(rootFolder);
+                            string folderName = dirInfo.Name;
+                            // Ensure drive roots (like C:\) don't become the folder name, instead use "C_Drive" or drop it.
+                            if (folderName.EndsWith(":\\") || folderName.EndsWith(":")) 
+                            {
+                                folderName = folderName.TrimEnd(':', '\\') + "_Drive";
+                            }
+                            
+                            string rel = fileInfo.FullName.Substring(rootFolder.Length).TrimStart('\\', '/');
+                            remoteTarget = Path.Combine(folderName, rel).Replace('\\', '/');
+                        }
 
                         var item = new TransferItem
                         {

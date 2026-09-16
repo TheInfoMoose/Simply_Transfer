@@ -7,6 +7,7 @@ using System.Management.Automation;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
+using System.ServiceProcess;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -118,10 +119,12 @@ namespace SimplyTransfer.Core.Services
             if (string.IsNullOrEmpty(candidateKey))
             {
                 string userSsh = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh");
+                string stKey = Path.Combine(userSsh, "simplytransfer_ed25519");
                 string edKey = Path.Combine(userSsh, "id_ed25519");
                 string rsaKey = Path.Combine(userSsh, "id_rsa");
 
-                if (File.Exists(edKey)) candidateKey = edKey;
+                if (File.Exists(stKey)) candidateKey = stKey;
+                else if (File.Exists(edKey)) candidateKey = edKey;
                 else if (File.Exists(rsaKey)) candidateKey = rsaKey;
             }
 
@@ -229,7 +232,7 @@ namespace SimplyTransfer.Core.Services
                 Directory.CreateDirectory(sshDir);
             }
 
-            string keyPath = Path.Combine(sshDir, "id_ed25519");
+            string keyPath = Path.Combine(sshDir, "simplytransfer_ed25519");
             if (File.Exists(keyPath))
             {
                 throw new InvalidOperationException($"Key already exists at '{keyPath}'. Will not overwrite an existing private key.");
@@ -450,6 +453,7 @@ namespace SimplyTransfer.Core.Services
             ExecuteCommand("takeown.exe", $"/F \"{adminAuthFile}\" /A");
 
             // 2. Set strict ACLs: Administrators:F, SYSTEM:F
+            ExecuteCommand("icacls.exe", $"\"{adminAuthFile}\" /reset");
             ExecuteCommand("icacls.exe", $"\"{adminAuthFile}\" /inheritance:r /grant:r \"*S-1-5-32-544:F\" /grant:r \"*S-1-5-18:F\"");
             ExecuteCommand("icacls.exe", $"\"{adminAuthFile}\" /setowner \"*S-1-5-32-544\"");
 
@@ -496,6 +500,176 @@ namespace SimplyTransfer.Core.Services
                 ExecuteCommand("powershell.exe", "-Command \"Set-Service sshd -StartupType Automatic -ErrorAction SilentlyContinue; Restart-Service sshd -ErrorAction SilentlyContinue\"");
             }
             catch { }
+        }
+
+        #endregion
+
+        #region Native Setup & Cleanup
+
+        public void InstallOpenSshCapabilities(Action<string>? outputHandler = null)
+        {
+            outputHandler?.Invoke("[SETUP] Installing OpenSSH Client via DISM...");
+            ExecuteCommand("dism.exe", "/Online /Add-Capability /CapabilityName:OpenSSH.Client~~~~0.0.1.0 /Quiet");
+            
+            outputHandler?.Invoke("[SETUP] Installing OpenSSH Server via DISM...");
+            ExecuteCommand("dism.exe", "/Online /Add-Capability /CapabilityName:OpenSSH.Server~~~~0.0.1.0 /Quiet");
+        }
+
+        public void ConfigureSshServices(Action<string>? outputHandler = null)
+        {
+            outputHandler?.Invoke("[SETUP] Configuring sshd and ssh-agent services...");
+
+            ExecuteCommand("sc.exe", "config sshd start= auto");
+            ExecuteCommand("sc.exe", "config ssh-agent start= auto");
+
+            StartServiceIfStopped("sshd", outputHandler);
+            StartServiceIfStopped("ssh-agent", outputHandler);
+        }
+
+        private void StartServiceIfStopped(string serviceName, Action<string>? outputHandler)
+        {
+            try
+            {
+                using var sc = new ServiceController(serviceName);
+                if (sc.Status != ServiceControllerStatus.Running)
+                {
+                    outputHandler?.Invoke($"[SETUP] Starting {serviceName}...");
+                    sc.Start();
+                    sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(10));
+                    outputHandler?.Invoke($"[SETUP] {serviceName} is now running.");
+                }
+                else
+                {
+                    outputHandler?.Invoke($"[SETUP] {serviceName} is already running.");
+                }
+            }
+            catch (Exception ex)
+            {
+                outputHandler?.Invoke($"[WARN] Could not start {serviceName}: {ex.Message}");
+            }
+        }
+
+        public void ConfigureFirewallPort22(Action<string>? outputHandler = null)
+        {
+            outputHandler?.Invoke("[SETUP] Configuring Windows Defender Firewall for inbound SSH (Port 22)...");
+            ExecuteCommand("netsh.exe", "advfirewall firewall add rule name=\"OpenSSH Server (sshd)\" dir=in action=allow protocol=TCP localport=22");
+        }
+
+        public void ProvisionDestinationUser(string targetUser, string targetDir, string pubKeyPath, Action<string>? outputHandler = null)
+        {
+            outputHandler?.Invoke($"[SETUP] Provisioning destination for user '{targetUser}' and directory '{targetDir}'...");
+
+            try
+            {
+                string pubKeyContent = File.ReadAllText(pubKeyPath).Trim();
+
+                // 1. Ensure OpenSSH ProgramData directory exists
+                string programDataSsh = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ssh");
+                if (!Directory.Exists(programDataSsh)) Directory.CreateDirectory(programDataSsh);
+                ExecuteCommand("icacls.exe", $"\"{programDataSsh}\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\" /grant:r \"*S-1-5-18:(OI)(CI)(F)\"");
+
+                // 2. Configure administrators_authorized_keys
+                string adminAuth = Path.Combine(programDataSsh, "administrators_authorized_keys");
+                if (!File.Exists(adminAuth) || !File.ReadAllText(adminAuth).Contains(pubKeyContent))
+                {
+                    File.AppendAllText(adminAuth, pubKeyContent + Environment.NewLine, Encoding.ASCII);
+                }
+                ExecuteCommand("takeown.exe", $"/F \"{adminAuth}\" /A");
+                ExecuteCommand("icacls.exe", $"\"{adminAuth}\" /inheritance:r /grant:r \"*S-1-5-32-544:F\" /grant:r \"*S-1-5-18:F\"");
+                ExecuteCommand("icacls.exe", $"\"{adminAuth}\" /setowner \"*S-1-5-32-544\"");
+                outputHandler?.Invoke($"[OK] Configured {adminAuth}");
+
+                // 3. Configure user authorized_keys
+                string userProfilePath = targetUser.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase) 
+                    ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "..", targetUser);
+                
+                string userSshDir = Path.Combine(userProfilePath, ".ssh");
+                if (!Directory.Exists(userSshDir)) Directory.CreateDirectory(userSshDir);
+                
+                string userAuth = Path.Combine(userSshDir, "authorized_keys");
+                if (!File.Exists(userAuth) || !File.ReadAllText(userAuth).Contains(pubKeyContent))
+                {
+                    File.AppendAllText(userAuth, pubKeyContent + Environment.NewLine, Encoding.ASCII);
+                }
+                ExecuteCommand("icacls.exe", $"\"{userSshDir}\" /inheritance:r /grant:r \"{targetUser}:(OI)(CI)(F)\" /grant:r \"*S-1-5-18:(OI)(CI)(F)\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\"");
+                ExecuteCommand("icacls.exe", $"\"{userAuth}\" /inheritance:r /grant:r \"{targetUser}:F\" /grant:r \"*S-1-5-18:F\" /grant:r \"*S-1-5-32-544:F\"");
+                outputHandler?.Invoke($"[OK] Configured {userAuth}");
+
+                // 4. Pre-create destination backup directory
+                if (!Directory.Exists(targetDir)) Directory.CreateDirectory(targetDir);
+                ExecuteCommand("icacls.exe", $"\"{targetDir}\" /grant:r \"{targetUser}:(OI)(CI)(M)\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\"");
+                outputHandler?.Invoke($"[OK] Pre-created backup folder: {targetDir}");
+
+                outputHandler?.Invoke("[OK] User provisioning complete.");
+            }
+            catch (Exception ex)
+            {
+                outputHandler?.Invoke($"[ERROR] Failed to provision user: {ex.Message}");
+            }
+        }
+
+        public void RemoveSecurityKeys(Action<string>? outputHandler = null)
+        {
+            outputHandler?.Invoke(">>> Starting Native Security Key Cleanup <<<");
+            
+            string userSshDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh");
+            
+            string[] keysToDelete = { "simplytransfer_ed25519", "simplytransfer_ed25519.pub", "simplytransfer_rsa", "simplytransfer_rsa.pub" };
+            foreach(var key in keysToDelete)
+            {
+                string path = Path.Combine(userSshDir, key);
+                if (File.Exists(path))
+                {
+                    try
+                    {
+                        File.Delete(path);
+                        outputHandler?.Invoke($"[OK] Removed local key: {key}");
+                    }
+                    catch (Exception ex)
+                    {
+                        outputHandler?.Invoke($"[WARN] Could not remove {key}: {ex.Message}");
+                    }
+                }
+            }
+
+            // Cleanup administrators_authorized_keys
+            string programDataSsh = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ssh");
+            string adminAuth = Path.Combine(programDataSsh, "administrators_authorized_keys");
+            
+            if (File.Exists(adminAuth))
+            {
+                try
+                {
+                    var lines = File.ReadAllLines(adminAuth);
+                    var newLines = lines.Where(l => !l.Contains("SimplyTransfer")).ToArray();
+                    File.WriteAllLines(adminAuth, newLines, Encoding.ASCII);
+                    outputHandler?.Invoke("[OK] Cleaned administrators_authorized_keys.");
+                }
+                catch (Exception ex)
+                {
+                    outputHandler?.Invoke($"[WARN] Could not clean administrators_authorized_keys: {ex.Message}");
+                }
+            }
+            
+            // Cleanup standard user authorized_keys
+            string userAuth = Path.Combine(userSshDir, "authorized_keys");
+            if (File.Exists(userAuth))
+            {
+                try
+                {
+                    var lines = File.ReadAllLines(userAuth);
+                    var newLines = lines.Where(l => !l.Contains("SimplyTransfer")).ToArray();
+                    File.WriteAllLines(userAuth, newLines, Encoding.ASCII);
+                    outputHandler?.Invoke("[OK] Cleaned user authorized_keys.");
+                }
+                catch (Exception ex)
+                {
+                    outputHandler?.Invoke($"[WARN] Could not clean user authorized_keys: {ex.Message}");
+                }
+            }
+            
+            outputHandler?.Invoke("Security Key Cleanup complete!");
         }
 
         #endregion
@@ -658,6 +832,44 @@ namespace SimplyTransfer.Core.Services
             int exitCode = await ExecuteScriptBlockAsync(scriptContent, arguments, outputHandler, cancellationToken);
             outputHandler?.Invoke($"[SDK-RUNNER] Completed '{scriptFileName}' (Exit Code: {exitCode})");
             return exitCode;
+        }
+
+        /// <summary>
+        /// Executes a native setup command (--setup-source, --setup-destination, --reset-keys) elevated.
+        /// </summary>
+        public async Task<int> RunNativeElevatedAsync(string commandFlag, string? arguments = null, Action<string>? outputHandler = null, CancellationToken cancellationToken = default)
+        {
+            if (!IsAdministrator())
+            {
+                string? exePath = Environment.ProcessPath;
+                if (string.IsNullOrEmpty(exePath) || !File.Exists(exePath))
+                {
+                    try { exePath = Process.GetCurrentProcess().MainModule?.FileName; } catch { }
+                }
+
+                if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+                {
+                    outputHandler?.Invoke($"[RUNNER] Elevating native setup via '{Path.GetFileName(exePath)}'...");
+                    var startInfo = new ProcessStartInfo
+                    {
+                        FileName = exePath,
+                        Arguments = $"--{commandFlag} {(arguments ?? string.Empty)}".Trim(),
+                        Verb = "RunAs",
+                        UseShellExecute = true
+                    };
+
+                    using var proc = Process.Start(startInfo);
+                    if (proc != null)
+                    {
+                        outputHandler?.Invoke($"[RUNNER] Elevated native process spawned (--{commandFlag}). Awaiting completion...");
+                        await proc.WaitForExitAsync(cancellationToken);
+                        outputHandler?.Invoke($"[RUNNER] Elevated process finished with exit code {proc.ExitCode}.");
+                        return proc.ExitCode;
+                    }
+                }
+                return 1;
+            }
+            return 0; // If already elevated, should not use this method.
         }
 
         /// <summary>
@@ -875,3 +1087,5 @@ namespace SimplyTransfer.Core.Services
         #endregion
     }
 }
+
+

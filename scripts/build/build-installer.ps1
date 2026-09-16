@@ -8,14 +8,17 @@ $RootDir = (Resolve-Path "$ScriptDir\..\..").Path
 Set-Location $RootDir
 
 Write-Host "Building and publishing SimplyTransfer ($Configuration)..." -ForegroundColor Cyan
-dotnet publish SimplyTransfer.UI/SimplyTransfer.UI.csproj -c $Configuration -r win-x64 --self-contained true -o "$RootDir/dist/publish"
+dotnet publish SimplyTransfer.UI/SimplyTransfer.UI.csproj -c $Configuration -r win-x64 --self-contained true -o "$RootDir/dist/SimplyTransfer-Release"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "dotnet publish failed. Aborting build."
+    exit $LASTEXITCODE
+}
 
 # Read version from Directory.Build.props
 [xml]$props = Get-Content "$RootDir/Directory.Build.props"
 $appVersion = $props.Project.PropertyGroup.Version
 if (-not $appVersion) { $appVersion = "1.0.0" }
 Write-Host "Detected Version: $appVersion" -ForegroundColor Cyan
-
 # Check if InnoSetup is installed
 $ISCC = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
 if (-not (Test-Path $ISCC)) {
@@ -24,7 +27,7 @@ if (-not (Test-Path $ISCC)) {
 
 if (-not (Test-Path $ISCC)) {
     Write-Warning "Inno Setup 6 (ISCC.exe) not found. Skipping installer compilation."
-    Write-Host "Publish output is available at: $RootDir/dist/publish"
+    Write-Host "Publish output is available at: $RootDir/dist/SimplyTransfer-Release"
     exit 0
 }
 

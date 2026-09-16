@@ -9,15 +9,6 @@ namespace SimplyTransfer.Tests
 {
     public class EmbeddedScriptAndSdkTests
     {
-        [Fact]
-        public void EmbeddedScripts_AreCompiledIntoAssemblyResources()
-        {
-            string? setupScript = HostReadinessService.GetEmbeddedScriptContent("setup-prerequisites.ps1");
-
-            Assert.False(string.IsNullOrWhiteSpace(setupScript), "setup-prerequisites.ps1 was not found in embedded assembly resources.");
-            Assert.Contains("param", setupScript, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("OpenSSH", setupScript, StringComparison.OrdinalIgnoreCase);
-        }
 
         [Fact]
         public async Task SystemManagementAutomation_InProcessExecution_CapturesStreams()

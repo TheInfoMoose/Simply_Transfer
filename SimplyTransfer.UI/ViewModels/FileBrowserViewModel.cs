@@ -212,7 +212,17 @@ namespace SimplyTransfer.UI.ViewModels
             IsQuickBooksFile = string.Equals(ext, ".qbw", StringComparison.OrdinalIgnoreCase) ||
                                string.Equals(ext, ".tlg", StringComparison.OrdinalIgnoreCase) ||
                                string.Equals(ext, ".qbb", StringComparison.OrdinalIgnoreCase) ||
-                               string.Equals(ext, ".nd", StringComparison.OrdinalIgnoreCase);
+                               string.Equals(ext, ".nd", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(ext, ".qbm", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(ext, ".qbx", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(ext, ".qby", StringComparison.OrdinalIgnoreCase) ||
+                               FullPath.IndexOf(".qbw\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                               FullPath.IndexOf(".tlg\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                               FullPath.IndexOf(".qbb\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                               FullPath.IndexOf(".nd\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                               FullPath.IndexOf(".qbm\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                               FullPath.IndexOf(".qbx\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                               FullPath.IndexOf(".qby\\", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         public void AddDummyChild()

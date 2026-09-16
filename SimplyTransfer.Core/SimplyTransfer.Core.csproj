@@ -17,10 +17,6 @@
     <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.4.6" />
   </ItemGroup>
 
-  <ItemGroup>
-    <EmbeddedResource Include="..\scripts\utils\setup-prerequisites.ps1" Link="Scripts\setup-prerequisites.ps1" />
-    <EmbeddedResource Include="..\scripts\utils\deploy-app-to-dest.ps1" Link="Scripts\deploy-app-to-dest.ps1" />
-    <EmbeddedResource Include="..\scripts\utils\Remove-SecurityKeys.ps1" Link="Scripts\Remove-SecurityKeys.ps1" />
-  </ItemGroup>
+
 
 </Project>

@@ -38,7 +38,7 @@
                 <!-- Branding -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,24,0">
                     <Border Width="34" Height="34" CornerRadius="8" Background="{StaticResource BgDark}" Margin="0,0,12,0" BorderBrush="{StaticResource BorderLight}" BorderThickness="1">
-                        <Image Source="Assets/logo.png" Margin="2" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <Image Source="Assets/icon.png" Margin="2" RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Border>
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="SIMPLY TRANSFER" FontSize="15" FontWeight="Bold" Foreground="{StaticResource TextPrimary}"/>
@@ -60,7 +60,7 @@
                     <Button Content="+ New" Command="{Binding NewProfileCommand}" Style="{StaticResource ModernButton}" Margin="0,0,6,0" Padding="10,4"/>
                     <Button Content="Export" Command="{Binding ExportProfileCommand}" Style="{StaticResource ModernButton}" Margin="0,0,6,0" Padding="10,4"/>
                     <Button Content="Import" Command="{Binding ImportProfileCommand}" Style="{StaticResource ModernButton}" Margin="0,0,6,0" Padding="10,4"/>
-                    <Button Content="Delete" Command="{Binding DeleteProfileCommand}" Style="{StaticResource ModernButton}" Margin="0,0,6,0" Padding="10,4" Foreground="#F87171"/>
+                    <Button Content="Purge Profile" Command="{Binding DeleteProfileCommand}" Style="{StaticResource ModernButton}" Margin="0,0,6,0" Padding="10,4" Foreground="#FCA5A5" BorderBrush="#7F1D1D" Background="#450A0A"/>
                 </StackPanel>
 
                 <!-- VPN Quick Status Card -->
@@ -155,7 +155,7 @@
                                             <TextBlock Text="🔄 Refresh" FontSize="11"/>
                                         </Button>
                                     </StackPanel>
-                                    <TextBlock Text="Select files or folders. QuickBooks files (.qbw/.tlg) are highlighted for atomic VSS snapshots." 
+                                    <TextBlock Text="Select files or folders. QuickBooks files (.qbw/.tlg/.nd/.qbb/.qbm/.qbx/.qby) are highlighted for atomic VSS snapshots." 
                                                FontSize="11" Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0"/>
                                 </StackPanel>
 
@@ -253,7 +253,13 @@
                                             </GridViewColumn>
 
                                             <!-- Size -->
-                                            <GridViewColumn Header="Size" Width="80" DisplayMemberBinding="{Binding FormattedSize}"/>
+                                            <GridViewColumn Header="Size" Width="80">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding FormattedSize}" Foreground="{StaticResource TextSecondary}" VerticalAlignment="Center"/>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
 
                                             <!-- VSS Mode -->
                                             <GridViewColumn Header="VSS Mode" Width="100">
@@ -277,7 +283,7 @@
                                                                         <Setter Property="Foreground" Value="#94A3B8"/>
                                                                         <Style.Triggers>
                                                                             <DataTrigger Binding="{Binding IsVssRequired}" Value="True">
-                                                                                <Setter Property="Text" Value="VSS Snapshot"/>
+                                                                                <Setter Property="Text" Value="VSS Snap"/>
                                                                                 <Setter Property="Foreground" Value="#93C5FD"/>
                                                                             </DataTrigger>
                                                                         </Style.Triggers>
@@ -302,7 +308,7 @@
                                             </GridViewColumn>
 
                                             <!-- Local SHA-256 -->
-                                            <GridViewColumn Header="Local SHA-256" Width="110">
+                                            <GridViewColumn Header="Local SHA-256" Width="250">
                                                 <GridViewColumn.CellTemplate>
                                                     <DataTemplate>
                                                         <TextBlock Text="{Binding LocalSha256}" 
@@ -603,14 +609,14 @@
                         <Border Grid.Row="2" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,14">
                             <StackPanel>
                                 <TextBlock Text="Volume Shadow Copy Service (VSS) &amp; QuickBooks" FontSize="15" FontWeight="Bold" Margin="0,0,0,4"/>
-                                <TextBlock Text="Creates point-in-time shadow snapshots to copy open and exclusively locked .qbw and .tlg databases safely without corruption." 
+                                <TextBlock Text="Creates point-in-time shadow snapshots to copy open and exclusively locked .qbw, .tlg, and related databases safely without corruption." 
                                            FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,14"/>
 
                                 <CheckBox Content="Use Windows VSS Snapshots for locked files" 
                                           IsChecked="{Binding SelectedProfile.UseVssForLockedFiles}" 
                                           FontWeight="SemiBold" Margin="0,0,0,8"/>
 
-                                <CheckBox Content="Automatically detect QuickBooks databases (*.qbw, *.tlg, *.qbb)" 
+                                <CheckBox Content="Automatically detect QuickBooks databases (*.qbw, *.tlg, *.qbb, *.nd, *.qbm, *.qbx, *.qby)" 
                                           IsChecked="{Binding SelectedProfile.AutoDetectQuickBooks}" 
                                           Margin="0,0,0,4"/>
                             </StackPanel>
@@ -838,17 +844,17 @@
                                     </Grid.ColumnDefinitions>
 
                                     <CheckBox Grid.Column="0" Content="Run with Elevated Administrator Privileges (UAC Prompt)" 
-                                              IsChecked="{Binding ElevateScriptExecution}" 
+                                              IsChecked="{Binding SelectedProfile.ElevateScriptExecution}" 
                                               FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,16,0"/>
 
                                     <StackPanel Grid.Column="1" Margin="0,0,8,0">
                                         <TextBlock Text="Destination User:" FontSize="11" Foreground="{StaticResource TextMuted}" Margin="0,0,0,2"/>
-                                        <TextBox Text="{Binding DestinationScriptUser, UpdateSourceTrigger=PropertyChanged}" Height="28" Padding="6,2" FontSize="12"/>
+                                        <TextBox Text="{Binding SelectedProfile.DestinationScriptUser, UpdateSourceTrigger=PropertyChanged}" Height="28" Padding="6,2" FontSize="12"/>
                                     </StackPanel>
 
                                     <StackPanel Grid.Column="2">
                                         <TextBlock Text="Destination Root Directory:" FontSize="11" Foreground="{StaticResource TextMuted}" Margin="0,0,0,2"/>
-                                        <TextBox Text="{Binding DestinationScriptDirectory, UpdateSourceTrigger=PropertyChanged}" Height="28" Padding="6,2" FontSize="12"/>
+                                        <TextBox Text="{Binding SelectedProfile.DestinationScriptDirectory, UpdateSourceTrigger=PropertyChanged}" Height="28" Padding="6,2" FontSize="12"/>
                                     </StackPanel>
                                 </Grid>
 
@@ -859,25 +865,25 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
 
-                                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                    <WrapPanel Grid.Column="0" Orientation="Horizontal">
                                         <Button Content="▶️  Run Setup Script &amp; Generate Destination Config" 
                                                 Command="{Binding RunSourceSetupScriptCommand}" 
                                                 Style="{StaticResource ModernButton}" 
-                                                Padding="14,6" Margin="0,0,10,0" Foreground="#38BDF8"
+                                                Padding="14,6" Margin="0,0,10,10" Foreground="#38BDF8"
                                                 ToolTip="Installs OpenSSH Client, generates SSH keys, and creates destination config"/>
 
                                         <Button Content="📦  Generate Destination Package" 
                                                 Command="{Binding GenerateDestinationPackageCommand}" 
                                                 Style="{StaticResource ModernButton}" 
-                                                Padding="14,6" Margin="0,0,10,0" Foreground="#A78BFA"
+                                                Padding="14,6" Margin="0,0,10,10" Foreground="#A78BFA"
                                                 ToolTip="Bundles the app, configuration profile, and public key into a portable zip file for manual transfer to the destination server"/>
 
-                                        <Button Content="🚀  Deploy App via SFTP" 
-                                                Command="{Binding RunDestinationSetupScriptCommand}" 
+                                        <Button Content="📥  Import Destination Package" 
+                                                Command="{Binding ImportDestinationPackageCommand}" 
                                                 Style="{StaticResource ModernButton}" 
-                                                Padding="14,6" Margin="0,0,10,0" Foreground="#34D399"
-                                                ToolTip="Deploys Simply Transfer to the remote destination server for destination tracking automatically via SFTP"/>
-                                    </StackPanel>
+                                                Padding="14,6" Margin="0,0,10,10" Foreground="#FBBF24"
+                                                ToolTip="Extracts a generated destination configuration package and imports the profile and public key locally"/>
+                                    </WrapPanel>
 
                                     <Button Grid.Column="1" Content="Clear Console" 
                                             Command="{Binding ClearScriptOutputCommand}" 
@@ -925,14 +931,70 @@
                                     <StackPanel>
                                         <TextBlock Text="HANDSHAKE LIFECYCLE STAGES" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMuted}" Margin="0,0,0,8"/>
                                         <UniformGrid Columns="8" HorizontalAlignment="Stretch">
-                                            <TextBlock Text="1. Pre-Flight" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#94A3B8"/>
-                                            <TextBlock Text="2. VSS Snapshot" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#94A3B8"/>
-                                            <TextBlock Text="3. SSH Socket" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#94A3B8"/>
-                                            <TextBlock Text="4. Key Auth" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#94A3B8"/>
-                                            <TextBlock Text="5. SFTP Session" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#94A3B8"/>
-                                            <TextBlock Text="6. Stream Data" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#94A3B8"/>
-                                            <TextBlock Text="7. Remote Hash" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#94A3B8"/>
-                                            <TextBlock Text="8. Verified" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#34D399"/>
+                                            <UniformGrid.Resources>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="FontSize" Value="10"/>
+                                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                                    <Setter Property="HorizontalAlignment" Value="Center"/>
+                                                    <Setter Property="Foreground" Value="#94A3B8"/>
+                                                </Style>
+                                            </UniformGrid.Resources>
+                                            <TextBlock Text="1. Pre-Flight">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                        <Style.Triggers><DataTrigger Binding="{Binding CurrentHandshakeState}" Value="PreFlightProbe"><Setter Property="Foreground" Value="#34D399"/></DataTrigger></Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="2. VSS Snapshot">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                        <Style.Triggers><DataTrigger Binding="{Binding CurrentHandshakeState}" Value="VssSnapshotting"><Setter Property="Foreground" Value="#34D399"/></DataTrigger></Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="3. SSH Socket">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                        <Style.Triggers><DataTrigger Binding="{Binding CurrentHandshakeState}" Value="SshHandshake"><Setter Property="Foreground" Value="#34D399"/></DataTrigger></Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="4. Key Auth">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                        <Style.Triggers><DataTrigger Binding="{Binding CurrentHandshakeState}" Value="KeyAuthentication"><Setter Property="Foreground" Value="#34D399"/></DataTrigger></Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="5. SFTP Session">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                        <Style.Triggers><DataTrigger Binding="{Binding CurrentHandshakeState}" Value="SftpSessionEstablished"><Setter Property="Foreground" Value="#34D399"/></DataTrigger></Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="6. Stream Data">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                        <Style.Triggers><DataTrigger Binding="{Binding CurrentHandshakeState}" Value="StreamingPayload"><Setter Property="Foreground" Value="#34D399"/></DataTrigger></Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="7. Remote Hash">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                        <Style.Triggers><DataTrigger Binding="{Binding CurrentHandshakeState}" Value="RemoteIntegrityHashing"><Setter Property="Foreground" Value="#34D399"/></DataTrigger></Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="8. Verified">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                        <Style.Triggers><DataTrigger Binding="{Binding CurrentHandshakeState}" Value="PayloadVerified"><Setter Property="Foreground" Value="#34D399"/></DataTrigger></Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
                                         </UniformGrid>
                                     </StackPanel>
                                 </Border>
@@ -1037,10 +1099,22 @@
                                             </GridViewColumn>
 
                                             <!-- Local Size -->
-                                            <GridViewColumn Header="Local Size" Width="90" DisplayMemberBinding="{Binding FormattedSize}"/>
+                                            <GridViewColumn Header="Local Size" Width="90">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding FormattedSize}" Foreground="{StaticResource TextSecondary}" VerticalAlignment="Center"/>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
 
                                             <!-- Remote Size -->
-                                            <GridViewColumn Header="Remote Size" Width="90" DisplayMemberBinding="{Binding FormattedRemoteSize}"/>
+                                            <GridViewColumn Header="Remote Size" Width="90">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding FormattedRemoteSize}" Foreground="{StaticResource TextSecondary}" VerticalAlignment="Center"/>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
 
                                             <!-- Parity Badge -->
                                             <GridViewColumn Header="Byte Parity" Width="120">
@@ -1075,7 +1149,7 @@
                                             </GridViewColumn>
 
                                             <!-- Local SHA-256 -->
-                                            <GridViewColumn Header="Local SHA-256" Width="140">
+                                            <GridViewColumn Header="Local SHA-256" Width="250">
                                                 <GridViewColumn.CellTemplate>
                                                     <DataTemplate>
                                                         <TextBlock Text="{Binding LocalSha256}" 
@@ -1088,7 +1162,7 @@
                                             </GridViewColumn>
 
                                             <!-- Remote SHA-256 -->
-                                            <GridViewColumn Header="Destination SHA-256" Width="140">
+                                            <GridViewColumn Header="Destination SHA-256" Width="250">
                                                 <GridViewColumn.CellTemplate>
                                                     <DataTemplate>
                                                         <TextBlock Text="{Binding RemoteSha256}" 

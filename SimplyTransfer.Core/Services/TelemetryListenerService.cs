@@ -19,7 +19,11 @@ namespace SimplyTransfer.Core.Services
         public double TransferSpeedBps { get; set; }
         public string StatusMessage { get; set; } = string.Empty;
         public int ItemIndex { get; set; }
-        public int TotalItems { get; set; }
+                public int TotalItems { get; set; }
+        public int HashStatus { get; set; } // Cast to HashMatchStatus in UI
+        public string LocalSha256 { get; set; } = string.Empty;
+        public string RemoteSha256 { get; set; } = string.Empty;
+        public long LatencyMs { get; set; }
     }
 
     /// <summary>
@@ -63,7 +67,13 @@ namespace SimplyTransfer.Core.Services
                             }
                         }
                         catch (OperationCanceledException) { break; }
-                        catch (Exception) { /* Ignore parsing or socket errors */ }
+                        catch (ObjectDisposedException) { break; }
+                        catch (NullReferenceException) { break; }
+                        catch (Exception) 
+                        { 
+                            if (_udpClient == null) break;
+                            /* Ignore parsing or socket errors */ 
+                        }
                     }
                 }, _cts.Token);
             }
@@ -142,3 +152,4 @@ namespace SimplyTransfer.Core.Services
         }
     }
 }
+

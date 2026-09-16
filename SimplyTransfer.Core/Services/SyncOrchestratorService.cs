@@ -429,6 +429,16 @@ namespace SimplyTransfer.Core.Services
                 sw.Stop();
                 Log($"[Validation] SFTP authentication failed: {ex.Message}", "ERROR", ex);
 
+                if (ex is Renci.SshNet.Common.SshPassPhraseNullOrEmptyException)
+                {
+                    return new ConnectionValidationResult
+                    {
+                        Success = false,
+                        Message = "Private key passphrase required, or key format unsupported.",
+                        Details = "SSH.NET reported that a passphrase is required to decrypt this key. If this key does NOT have a passphrase, it means SSH.NET cannot parse its format (e.g., ECDSA or an unsupported OpenSSH cipher).\n\nPlease generate a standard Ed25519 or RSA key (e.g., ssh-keygen -t ed25519) and try again."
+                    };
+                }
+
                 string helpfulDetails = ex.Message;
                 if (ex.Message.Contains("Permission denied", StringComparison.OrdinalIgnoreCase) ||
                     ex.Message.Contains("publickey", StringComparison.OrdinalIgnoreCase))
@@ -449,7 +459,7 @@ namespace SimplyTransfer.Core.Services
                     }
                     if (string.IsNullOrEmpty(pubKeyInfo))
                     {
-                        string defaultPub = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh", "id_ed25519.pub");
+                        string defaultPub = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh", "simplytransfer_ed25519.pub");
                         if (File.Exists(defaultPub))
                         {
                             try { pubKeyInfo = File.ReadAllText(defaultPub).Trim(); } catch { }
@@ -657,7 +667,7 @@ namespace SimplyTransfer.Core.Services
                     // Write status file to destination for tracking
                     try
                     {
-                        string statusFile = CombineUnixPath(profile.DestinationDirectory, ".sync-status.json");
+                        string statusFile = CombineWindowsPath(profile.DestinationDirectory, ".sync-status.json");
                         string statusJson = $"{{\n  \"CurrentFile\": \"{item.FileName}\",\n  \"Progress\": 0,\n  \"TransferredBytes\": {transferredBytesTotal},\n  \"TotalBytes\": {totalBytes}\n}}";
                         using var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(statusJson));
                         await sftpService.UploadStreamAsync(ms, statusFile, null, cancellationToken);
@@ -690,7 +700,13 @@ namespace SimplyTransfer.Core.Services
                         fileStream.Position = 0;
 
                         // Upload to remote SFTP
-                        string remoteTarget = CombineUnixPath(profile.DestinationDirectory, item.RemoteFilePath);
+                                                string remoteTarget = CombineWindowsPath(profile.DestinationDirectory, item.RemoteFilePath);
+                        
+                        string? remoteDir = System.IO.Path.GetDirectoryName(remoteTarget)?.Replace('/', '\\');
+                        if (!string.IsNullOrEmpty(remoteDir))
+                        {
+                            await sftpService.EnsureRemoteDirectoryExistsAsync(remoteDir, cancellationToken);
+                        }
 
                         await sftpService.UploadStreamAsync(
                             fileStream,
@@ -733,7 +749,7 @@ namespace SimplyTransfer.Core.Services
 
                         try
                         {
-                            string statusFile = CombineUnixPath(profile.DestinationDirectory, ".sync-status.json");
+                            string statusFile = CombineWindowsPath(profile.DestinationDirectory, ".sync-status.json");
                             string statusJson = $"{{\n  \"CurrentFile\": \"{item.FileName}\",\n  \"Progress\": 100,\n  \"TransferredBytes\": {transferredBytesTotal},\n  \"TotalBytes\": {totalBytes}\n}}";
                             using var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(statusJson));
                             await sftpService.UploadStreamAsync(ms, statusFile, null, cancellationToken);
@@ -764,17 +780,20 @@ namespace SimplyTransfer.Core.Services
                             item.Status = TransferStatus.Completed;
                             item.StatusMessage = $"Verified ({item.FormattedSize} & Hash Match)";
                             item.CompletedTime = DateTime.Now;
-                            UpdateTelemetry(ConnectionHandshakeState.PayloadVerified, $"✓ Bit-perfect match confirmed for {item.FileName} ({item.FormattedSize}).", item.FileName, transferredBytesTotal, totalBytes, 0, 0, idx + 1, items.Count);
-                            Log($"[Verify] ✓ HASH & BYTE PARITY MATCH CONFIRMED for '{item.FileName}'. SHA-256: {item.LocalSha256} | Size: {item.FormattedSize}", "SUCCESS");
+                            UpdateTelemetry(ConnectionHandshakeState.PayloadVerified, $"âœ“ Bit-perfect match confirmed for {item.FileName} ({item.FormattedSize}).", item.FileName, transferredBytesTotal, totalBytes, 0, 0, idx + 1, items.Count);
+                            Log($"[Verify] âœ“ HASH & BYTE PARITY MATCH CONFIRMED for '{item.FileName}'. SHA-256: {item.LocalSha256} | Size: {item.FormattedSize}", "SUCCESS");
 
-                            telemetrySender?.SendTelemetry(new TelemetryPacket
+                                                        telemetrySender?.SendTelemetry(new TelemetryPacket
                             {
                                 Action = "Verified",
                                 CurrentFile = item.FileName,
                                 ProgressPercentage = 100,
                                 BytesTransferred = transferredBytesTotal,
                                 TotalBytes = totalBytes,
-                                StatusMessage = "File Verified Successfully"
+                                StatusMessage = "File Verified Successfully",
+                                LocalSha256 = item.LocalSha256 ?? "",
+                                RemoteSha256 = item.RemoteSha256 ?? "",
+                                HashStatus = (int)item.HashStatus
                             });
                         }
                         else if (!hashMatches)
@@ -783,7 +802,7 @@ namespace SimplyTransfer.Core.Services
                             item.Status = TransferStatus.Failed;
                             item.StatusMessage = "Hash mismatch";
                             item.ErrorMessage = $"Hash mismatch! Local: {item.LocalSha256} != Remote: {item.RemoteSha256}";
-                            Log($"[Verify] ✗ HASH MISMATCH for '{item.FileName}'! Local: {item.LocalSha256}, Remote: {item.RemoteSha256}", "ERROR");
+                            Log($"[Verify] âœ— HASH MISMATCH for '{item.FileName}'! Local: {item.LocalSha256}, Remote: {item.RemoteSha256}", "ERROR");
                             overallSuccess = false;
                         }
                         else
@@ -792,11 +811,22 @@ namespace SimplyTransfer.Core.Services
                             item.Status = TransferStatus.Failed;
                             item.StatusMessage = "Size parity mismatch";
                             item.ErrorMessage = $"File size parity failed! Local: {item.FileSizeBytes} B != Remote: {remoteSize} B";
-                            Log($"[Verify] ✗ SIZE PARITY MISMATCH for '{item.FileName}'! Local: {item.FileSizeBytes} B, Remote: {remoteSize} B", "ERROR");
+                            Log($"[Verify] âœ— SIZE PARITY MISMATCH for '{item.FileName}'! Local: {item.FileSizeBytes} B, Remote: {remoteSize} B", "ERROR");
                             overallSuccess = false;
                         }
-
                         ItemProgressUpdated?.Invoke(this, item);
+                        telemetrySender?.SendTelemetry(new TelemetryPacket
+                        {
+                            Action = item.Status == TransferStatus.Completed ? "Verified" : "Failed",
+                            CurrentFile = item.FileName,
+                            ProgressPercentage = item.ProgressPercentage,
+                            BytesTransferred = item.BytesTransferred,
+                            TotalBytes = item.FileSizeBytes,
+                            StatusMessage = item.StatusMessage,
+                            LocalSha256 = item.LocalSha256 ?? "",
+                            RemoteSha256 = item.RemoteSha256 ?? "",
+                            HashStatus = (int)item.HashStatus
+                        });
                     }
                     catch (Exception ex)
                     {
@@ -862,18 +892,20 @@ namespace SimplyTransfer.Core.Services
             return overallSuccess;
         }
 
-        private static string CombineUnixPath(string basePath, string relativePath)
+        private static string CombineWindowsPath(string basePath, string relativePath)
         {
-            string baseNorm = basePath.Replace('\\', '/').TrimEnd('/');
+            string baseNorm = basePath.Replace('/', '\\').TrimEnd('\\');
             
-            // If baseNorm is a Windows drive letter (e.g. "C:/..."), prefix it with '/' so SFTP treats it as absolute
-            if (System.Text.RegularExpressions.Regex.IsMatch(baseNorm, @"^[a-zA-Z]:"))
-            {
-                baseNorm = "/" + baseNorm;
-            }
+                        // Applied fix for Windows pathing
 
-            string relNorm = relativePath.Replace('\\', '/').TrimStart('/');
-            return $"{baseNorm}/{relNorm}";
+            string relNorm = relativePath.Replace('/', '\\').TrimStart('\\');
+            return $"{baseNorm}\\{relNorm}";
         }
     }
 }
+
+
+
+
+
+

@@ -103,5 +103,20 @@ namespace SimplyTransfer.Core.Models
         /// Gets or sets the remote destination directory on the SFTP server.
         /// </summary>
         public string DestinationDirectory { get; set; } = "/backups/";
+
+        /// <summary>
+        /// Gets or sets whether PowerShell prerequisite scripts should be run with elevated privileges.
+        /// </summary>
+        public bool ElevateScriptExecution { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets the target user to configure when running the host provisioning script.
+        /// </summary>
+        public string DestinationScriptUser { get; set; } = Environment.UserName;
+
+        /// <summary>
+        /// Gets or sets the target directory to configure when running the host provisioning script.
+        /// </summary>
+        public string DestinationScriptDirectory { get; set; } = @"C:\Backups";
     }
 }

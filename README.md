@@ -6,7 +6,7 @@
 [![Security: Pure Key Auth](https://img.shields.io/badge/Security-Pure%20Key%20Auth-10B981)](#security-model)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 
-**Simply Transfer** is an enterprise-grade Windows desktop file synchronization utility engineered for secure peer-to-server data protection. Combining pure SSH key-authenticated SFTP, automated pre-flight VPN orchestration (WireGuard and RAS), and Microsoft Windows Volume Shadow Copy Service (VSS) snapshotting, Simply Transfer safely backs up live, open, and exclusively locked files (such as active QuickBooks `.qbw` and `.tlg` databases) without interruption or data corruption.
+**Simply Transfer** is an enterprise-grade Windows desktop file synchronization utility engineered for secure peer-to-server data protection. Combining pure SSH key-authenticated SFTP, automated pre-flight VPN orchestration (WireGuard and RAS), and Microsoft Windows Volume Shadow Copy Service (VSS) snapshotting, Simply Transfer safely backs up live, open, and exclusively locked files (such as active QuickBooks `.qbw`, `.tlg`, and related databases) without interruption or data corruption.
 
 ---
 
@@ -208,7 +208,7 @@ For VSS Volume Shadow Copy snapshots of live QuickBooks company files, right-cli
    - Configure **Probe Timeout** (recommended: 15–30 seconds).
 8. **VSS Snapshotting**:
    - Ensure **Use Windows VSS Snapshots for locked files** is checked.
-   - Check **Automatically detect QuickBooks databases** to highlight `.qbw`, `.tlg`, `.qbb`, and `.nd` files.
+   - Check **Automatically detect QuickBooks databases** to highlight `.qbw`, `.tlg`, `.qbb`, `.nd`, `.qbm`, `.qbx`, and `.qby` files.
 9. Click **Save Profile Changes**.
 
 ### 3. Executing a Sync

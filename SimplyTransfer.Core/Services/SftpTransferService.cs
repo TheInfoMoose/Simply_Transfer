@@ -139,6 +139,17 @@ namespace SimplyTransfer.Core.Services
             };
         }
 
+        private static string FormatSftpPath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+            string sftpPath = path.Replace('\\', '/');
+            if (Regex.IsMatch(sftpPath, @"^[a-zA-Z]:"))
+            {
+                sftpPath = "/" + sftpPath;
+            }
+            return sftpPath;
+        }
+
         /// <summary>
         /// Asynchronously connects both SFTP and SSH clients to the remote host.
         /// </summary>
@@ -172,13 +183,7 @@ namespace SimplyTransfer.Core.Services
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                string path = remoteDirectoryPath.Replace('\\', '/').TrimEnd('/');
-                
-                // Ensure Windows absolute paths start with '/' for SFTP compatibility
-                if (Regex.IsMatch(path, @"^[a-zA-Z]:"))
-                {
-                    path = "/" + path;
-                }
+                string path = FormatSftpPath(remoteDirectoryPath).TrimEnd('/');
 
                 string[] segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
@@ -238,39 +243,40 @@ namespace SimplyTransfer.Core.Services
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Format remote path with Unix forward slashes
-                remoteFilePath = remoteFilePath.Replace('\\', '/');
+                // Format remote path with Windows back slashes as expected
+                remoteFilePath = NormalizePathForWindows(remoteFilePath);
                 
-                // Ensure Windows absolute paths start with '/' for SFTP compatibility
-                if (Regex.IsMatch(remoteFilePath, @"^[a-zA-Z]:"))
+                string sftpRemoteFilePath = FormatSftpPath(remoteFilePath);
+                string? sftpDir = FormatSftpPath(Path.GetDirectoryName(remoteFilePath));
+                
+                if (!string.IsNullOrEmpty(sftpDir))
                 {
-                    remoteFilePath = "/" + remoteFilePath;
-                }
-                
-                string? dir = Path.GetDirectoryName(remoteFilePath)?.Replace('\\', '/');
-                string fileName = Path.GetFileName(remoteFilePath);
-                
-                if (!string.IsNullOrEmpty(dir))
-                {
-                    if (!_sftpClient.Exists(dir))
+                    if (!_sftpClient.Exists(sftpDir))
                     {
-                        EnsureRemoteDirectoryExistsAsync(dir, cancellationToken).GetAwaiter().GetResult();
+                        EnsureRemoteDirectoryExistsAsync(sftpDir, cancellationToken).GetAwaiter().GetResult();
                     }
-                    _sftpClient.ChangeDirectory(dir);
                 }
 
                 var stopwatch = Stopwatch.StartNew();
-
-                Console.WriteLine($"[TRACE] UploadFile called with remoteFilePath: '{remoteFilePath}'");
-
-                _sftpClient.UploadFile(sourceStream, fileName, bytesUploaded =>
+                Console.WriteLine($"[TRACE] Manual stream upload to: '{remoteFilePath}'");
+                
+                using (var destStream = _sftpClient.OpenWrite(sftpRemoteFilePath))
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    double speedBps = stopwatch.Elapsed.TotalSeconds > 0 
-                        ? bytesUploaded / stopwatch.Elapsed.TotalSeconds 
-                        : 0;
-                    progressCallback?.Invoke(bytesUploaded, speedBps);
-                });
+                    byte[] buffer = new byte[32768]; // 32 KB buffer fix for SFTP invalid message error
+                    int read;
+                    ulong bytesUploaded = 0;
+                    while ((read = sourceStream.Read(buffer, 0, buffer.Length)) > 0)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        destStream.Write(buffer, 0, read);
+                        bytesUploaded += (ulong)read;
+                        
+                        double speedBps = stopwatch.Elapsed.TotalSeconds > 0 
+                            ? bytesUploaded / stopwatch.Elapsed.TotalSeconds 
+                            : 0;
+                        progressCallback?.Invoke(bytesUploaded, speedBps);
+                    }
+                }
             }, cancellationToken);
         }
 
@@ -325,22 +331,10 @@ namespace SimplyTransfer.Core.Services
                 return await Task.Run(async () =>
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    string sftpPath = remoteFilePath.Replace('\\', '/');
                     
-                    if (Regex.IsMatch(sftpPath, @"^[a-zA-Z]:"))
-                    {
-                        sftpPath = "/" + sftpPath;
-                    }
+                    string sftpPath = FormatSftpPath(remoteFilePath);
                     
-                    string? dir = Path.GetDirectoryName(sftpPath)?.Replace('\\', '/');
-                    string fileName = Path.GetFileName(sftpPath);
-                    
-                    if (!string.IsNullOrEmpty(dir))
-                    {
-                        _sftpClient.ChangeDirectory(dir);
-                    }
-                    
-                    using var stream = _sftpClient.OpenRead(fileName);
+                    using var stream = _sftpClient.OpenRead(sftpPath);
                     return await _hashService.ComputeStreamHashAsync(stream, cancellationToken: cancellationToken);
                 }, cancellationToken);
             }
@@ -362,23 +356,12 @@ namespace SimplyTransfer.Core.Services
             return await Task.Run(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                string sftpPath = remoteFilePath.Replace('\\', '/');
-                if (Regex.IsMatch(sftpPath, @"^[a-zA-Z]:"))
-                {
-                    sftpPath = "/" + sftpPath;
-                }
+                
+                string sftpPath = FormatSftpPath(remoteFilePath);
 
-                string? dir = Path.GetDirectoryName(sftpPath)?.Replace('\\', '/');
-                string fileName = Path.GetFileName(sftpPath);
-
-                if (!string.IsNullOrEmpty(dir))
+                if (_sftpClient.Exists(sftpPath))
                 {
-                    _sftpClient.ChangeDirectory(dir);
-                }
-
-                if (_sftpClient.Exists(fileName))
-                {
-                    var attrs = _sftpClient.GetAttributes(fileName);
+                    var attrs = _sftpClient.GetAttributes(sftpPath);
                     return attrs.Size;
                 }
 
@@ -519,3 +502,11 @@ namespace SimplyTransfer.Core.Services
         }
     }
 }
+
+
+
+
+
+
+
+

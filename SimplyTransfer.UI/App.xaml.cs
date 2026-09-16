@@ -1,3 +1,4 @@
+using System.IO;
 using System;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
@@ -163,6 +164,11 @@ namespace SimplyTransfer.UI
             if (args.Any(a => a.Equals("--setup-source", StringComparison.OrdinalIgnoreCase) || a.Equals("-SetupSource", StringComparison.OrdinalIgnoreCase)))
             {
                 _logger?.LogInfo("[CLI] Executing source setup bootstrap...");
+                Action<string> logAction = line => Console.WriteLine(line);
+                readiness.InstallOpenSshCapabilities(logAction);
+                readiness.ConfigureSshServices(logAction);
+                readiness.ConfigureFirewallPort22(logAction);
+                
                 var report = readiness.AuditSourceReadiness();
                 if (!report.KeyPairExists)
                 {
@@ -173,6 +179,51 @@ namespace SimplyTransfer.UI
                     readiness.RepairSourceKeyAcls(report.PrivateKeyPath);
                 }
                 _logger?.LogSuccess("[CLI] Source host bootstrap complete.");
+                return true;
+            }
+
+            if (args.Any(a => a.Equals("--setup-destination", StringComparison.OrdinalIgnoreCase)))
+            {
+                _logger?.LogInfo("[CLI] Executing destination setup bootstrap...");
+                
+                string targetUser = Environment.UserName;
+                string targetDir = @"C:\Backups";
+                string pubKeyPath = string.Empty;
+                
+                for (int i = 0; i < args.Length; i++)
+                {
+                    if (args[i].Equals("--user", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                        targetUser = args[i + 1];
+                    else if (args[i].Equals("--dir", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                        targetDir = args[i + 1];
+                    else if (args[i].Equals("--pubkey", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                        pubKeyPath = args[i + 1];
+                }
+
+                Action<string> logAction = line => Console.WriteLine(line);
+                readiness.InstallOpenSshCapabilities(logAction);
+                readiness.ConfigureSshServices(logAction);
+                readiness.ConfigureFirewallPort22(logAction);
+
+                if (!string.IsNullOrEmpty(pubKeyPath) && File.Exists(pubKeyPath))
+                {
+                    readiness.ProvisionDestinationUser(targetUser, targetDir, pubKeyPath, logAction);
+                }
+                else
+                {
+                    _logger?.LogWarn("[CLI] Missing or invalid public key path. Skipping user provisioning.");
+                }
+
+                _logger?.LogSuccess("[CLI] Destination host bootstrap complete.");
+                return true;
+            }
+
+            if (args.Any(a => a.Equals("--reset-keys", StringComparison.OrdinalIgnoreCase)))
+            {
+                _logger?.LogInfo("[CLI] Executing native key reset...");
+                Action<string> logAction = line => Console.WriteLine(line);
+                readiness.RemoveSecurityKeys(logAction);
+                _logger?.LogSuccess("[CLI] Native key reset complete.");
                 return true;
             }
 

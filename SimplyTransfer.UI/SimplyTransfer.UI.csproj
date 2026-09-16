@@ -15,7 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Resource Include="Assets\logo.png" />
+    <Resource Include="Assets\icon.png" />
     <Resource Include="Assets\icon.ico" />
   </ItemGroup>
 

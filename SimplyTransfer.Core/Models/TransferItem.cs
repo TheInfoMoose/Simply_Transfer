@@ -241,6 +241,8 @@ namespace SimplyTransfer.Core.Models
         /// </summary>
         public string FormattedSize => FormatSize(FileSizeBytes);
 
+        public override string ToString() => FileName;
+
         /// <summary>
         /// Helper to set property and notify change.
         /// </summary>
@@ -259,5 +261,15 @@ namespace SimplyTransfer.Core.Models
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
+
+        /// <summary>
+        /// Forces a refresh of all data bindings by raising PropertyChanged with string.Empty.
+        /// This should be called from the UI thread to marshal background updates.
+        /// </summary>
+        public void RefreshBindings()
+        {
+            OnPropertyChanged(string.Empty);
+        }
     }
 }
+
