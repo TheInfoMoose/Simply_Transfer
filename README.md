@@ -26,6 +26,12 @@
   Crafted with MVVM CommunityToolkit, featuring a multi-select file browser with QuickBooks detection badges, real-time speed/progress monitoring, interactive validation badges, and searchable audit logs.
 - **Portable Profile Management**: 
   Profiles are persisted to `%APPDATA%\SimplyTransfer\profiles.json` and can be exported/imported as portable JSON packages (with machine-specific secrets stripped for safe distribution).
+- **Chunk Processing Features**: 
+  Robust chunk processing capabilities to optimize transfers, reduce memory overhead, and ensure resilience for large datasets.
+- **Inno Installer Setup**: 
+  Automated Windows deployment packages compiled via Inno Setup for a streamlined, single-click installation experience.
+- **Enhanced UI Key Management**: 
+  Interactive UI controls with dedicated Add/Remove buttons for SSH keys and options to seamlessly toggle profile encryption settings.
 
 ---
 

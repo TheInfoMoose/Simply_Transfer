@@ -150,6 +150,68 @@ namespace SimplyTransfer.Core.Services
             return sftpPath;
         }
 
+        public async Task SetRemoteFileLastWriteTimeAsync(string remoteFilePath, DateTime lastWriteTimeUtc, CancellationToken cancellationToken = default)
+        {
+            if (_sftpClient == null || !_sftpClient.IsConnected)
+                throw new InvalidOperationException("SFTP client is not connected.");
+
+            await Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string winPath = NormalizePathForWindows(remoteFilePath);
+                string unixPath = NormalizePathForUnix(remoteFilePath);
+                
+                // Try using SSH commands for reliable timestamp modification
+                if (_sshClient != null && _sshClient.IsConnected)
+                {
+                    bool isWindowsTarget = IsWindowsRemotePath(remoteFilePath) || 
+                                          (_sshClient.ConnectionInfo.ServerVersion?.Contains("Windows", StringComparison.OrdinalIgnoreCase) == true);
+                    
+                    if (isWindowsTarget)
+                    {
+                        string psLiteral = winPath.Replace("'", "''");
+                        string psTime = lastWriteTimeUtc.ToString("o"); // ISO 8601
+                        string psCmd = $"powershell -NoProfile -NonInteractive -Command \"(Get-Item -LiteralPath '{psLiteral}').LastWriteTimeUtc = [datetime]::Parse('{psTime}')\"";
+                        try 
+                        {
+                            var cmd = _sshClient.CreateCommand(psCmd);
+                            cmd.Execute();
+                            if (cmd.ExitStatus == 0) return;
+                        }
+                        catch { }
+                    }
+                    else
+                    {
+                        // Unix touch: [[CC]YY]MMDDhhmm[.ss]
+                        string touchTime = lastWriteTimeUtc.ToString("yyyyMMddHHmm.ss");
+                        string bashLiteral = unixPath.Replace("'", "'\\''");
+                        string touchCmd = $"touch -m -t {touchTime} '{bashLiteral}'";
+                        try
+                        {
+                            var cmd = _sshClient.CreateCommand(touchCmd);
+                            cmd.Execute();
+                            if (cmd.ExitStatus == 0) return;
+                        }
+                        catch { }
+                    }
+                }
+
+                // Fallback to SFTP attributes
+                string sftpRemoteFilePath = FormatSftpPath(winPath);
+                try
+                {
+                    var attributes = _sftpClient.GetAttributes(sftpRemoteFilePath);
+                    attributes.LastWriteTime = lastWriteTimeUtc;
+                    attributes.LastAccessTime = lastWriteTimeUtc; // often required by SFTP servers
+                    _sftpClient.SetAttributes(sftpRemoteFilePath, attributes);
+                }
+                catch
+                {
+                    // Ignore if not supported by SFTP server
+                }
+            }, cancellationToken);
+        }
+
         /// <summary>
         /// Asynchronously connects both SFTP and SSH clients to the remote host.
         /// </summary>
@@ -221,6 +283,71 @@ namespace SimplyTransfer.Core.Services
             }, cancellationToken);
         }
 
+        private class HashTrackingStream : Stream
+        {
+            private readonly Stream _baseStream;
+            private readonly System.Security.Cryptography.HashAlgorithm _hashAlgorithm;
+            private readonly Action<ulong, double>? _progressCallback;
+            private readonly CancellationToken _cancellationToken;
+            
+            private ulong _bytesRead = 0;
+            private ulong _lastReportedBytes = 0;
+            private readonly Stopwatch _stopwatch;
+            private long _lastReportTimeMs = 0;
+
+            public string FinalHash { get; private set; } = string.Empty;
+
+            public HashTrackingStream(Stream baseStream, System.Security.Cryptography.HashAlgorithm hashAlgorithm, Action<ulong, double>? progressCallback, CancellationToken cancellationToken)
+            {
+                _baseStream = baseStream;
+                _hashAlgorithm = hashAlgorithm;
+                _progressCallback = progressCallback;
+                _cancellationToken = cancellationToken;
+                _stopwatch = Stopwatch.StartNew();
+            }
+
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                _cancellationToken.ThrowIfCancellationRequested();
+                int read = _baseStream.Read(buffer, offset, count);
+                if (read > 0)
+                {
+                    _hashAlgorithm.TransformBlock(buffer, offset, read, null, 0);
+                    _bytesRead += (ulong)read;
+                    
+                    // Throttle progress updates to avoid UI glitches (report every ~1MB or 1 sec)
+                    if (_bytesRead - _lastReportedBytes >= 1024 * 1024 || _stopwatch.ElapsedMilliseconds - _lastReportTimeMs > 1000)
+                    {
+                        double speedBps = _stopwatch.Elapsed.TotalSeconds > 0 
+                            ? _bytesRead / _stopwatch.Elapsed.TotalSeconds 
+                            : 0;
+                        _progressCallback?.Invoke(_bytesRead, speedBps);
+                        _lastReportedBytes = _bytesRead;
+                        _lastReportTimeMs = _stopwatch.ElapsedMilliseconds;
+                    }
+                }
+                else
+                {
+                    if (string.IsNullOrEmpty(FinalHash))
+                    {
+                        _hashAlgorithm.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                        FinalHash = BitConverter.ToString(_hashAlgorithm.Hash!).Replace("-", "").ToLowerInvariant();
+                    }
+                }
+                return read;
+            }
+
+            public override bool CanRead => _baseStream.CanRead;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => _baseStream.Length;
+            public override long Position { get => _baseStream.Position; set => throw new NotSupportedException(); }
+            public override void Flush() => _baseStream.Flush();
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        }
+
         /// <summary>
         /// Uploads an open readable data stream to the specified remote SFTP destination path,
         /// providing real-time upload progress and throughput metrics.
@@ -230,7 +357,7 @@ namespace SimplyTransfer.Core.Services
         /// <param name="progressCallback">Optional callback reporting (bytesUploaded, throughputBytesPerSec).</param>
         /// <param name="cancellationToken">Cancellation token to abort the upload.</param>
         /// <exception cref="InvalidOperationException">Thrown if the SFTP client is not connected.</exception>
-        public async Task UploadStreamAsync(
+        public async Task<string> UploadStreamAsync(
             Stream sourceStream, 
             string remoteFilePath, 
             Action<ulong, double>? progressCallback = null, 
@@ -239,7 +366,7 @@ namespace SimplyTransfer.Core.Services
             if (_sftpClient == null || !_sftpClient.IsConnected)
                 throw new InvalidOperationException("SFTP client is not connected.");
 
-            await Task.Run(() =>
+            return await Task.Run(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -257,26 +384,21 @@ namespace SimplyTransfer.Core.Services
                     }
                 }
 
-                var stopwatch = Stopwatch.StartNew();
-                Console.WriteLine($"[TRACE] Manual stream upload to: '{remoteFilePath}'");
+                Console.WriteLine($"[TRACE] Stream upload via Native Chunking to: '{remoteFilePath}'");
                 
-                using (var destStream = _sftpClient.OpenWrite(sftpRemoteFilePath))
+                using var sha256 = System.Security.Cryptography.SHA256.Create();
+                using var trackingStream = new HashTrackingStream(sourceStream, sha256, progressCallback, cancellationToken);
+                
+                _sftpClient.BufferSize = 32768; // 32 KB buffer optimal for SFTP
+                _sftpClient.UploadFile(trackingStream, sftpRemoteFilePath, null);
+                
+                if (string.IsNullOrEmpty(trackingStream.FinalHash))
                 {
-                    byte[] buffer = new byte[32768]; // 32 KB buffer fix for SFTP invalid message error
-                    int read;
-                    ulong bytesUploaded = 0;
-                    while ((read = sourceStream.Read(buffer, 0, buffer.Length)) > 0)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        destStream.Write(buffer, 0, read);
-                        bytesUploaded += (ulong)read;
-                        
-                        double speedBps = stopwatch.Elapsed.TotalSeconds > 0 
-                            ? bytesUploaded / stopwatch.Elapsed.TotalSeconds 
-                            : 0;
-                        progressCallback?.Invoke(bytesUploaded, speedBps);
-                    }
+                    byte[] dump = new byte[1024];
+                    while (trackingStream.Read(dump, 0, dump.Length) > 0) {}
                 }
+                
+                return trackingStream.FinalHash;
             }, cancellationToken);
         }
 
@@ -287,14 +409,14 @@ namespace SimplyTransfer.Core.Services
         /// <param name="remoteFilePath">The remote file path.</param>
         /// <param name="progressCallback">Optional progress callback.</param>
         /// <param name="cancellationToken">Cancellation token to abort the upload.</param>
-        public async Task UploadFileAsync(
+        public async Task<string> UploadFileAsync(
             string localFilePath, 
             string remoteFilePath, 
             Action<ulong, double>? progressCallback = null, 
             CancellationToken cancellationToken = default)
         {
             using var fileStream = new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1024 * 1024, useAsync: true);
-            await UploadStreamAsync(fileStream, remoteFilePath, progressCallback, cancellationToken);
+            return await UploadStreamAsync(fileStream, remoteFilePath, progressCallback, cancellationToken);
         }
 
         /// <summary>
@@ -366,6 +488,95 @@ namespace SimplyTransfer.Core.Services
                 }
 
                 return -1L;
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Retrieves the last write time of a remote file on the SFTP host.
+        /// </summary>
+        /// <param name="remoteFilePath">The remote file path.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>Remote file LastWriteTime, or null if the file does not exist.</returns>
+        public async Task<DateTime?> GetRemoteFileLastWriteTimeAsync(string remoteFilePath, CancellationToken cancellationToken = default)
+        {
+            if (_sftpClient == null || !_sftpClient.IsConnected)
+                throw new InvalidOperationException("SFTP client is not connected.");
+
+            return await Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                
+                string sftpPath = FormatSftpPath(remoteFilePath);
+
+                if (_sftpClient.Exists(sftpPath))
+                {
+                    var attrs = _sftpClient.GetAttributes(sftpPath);
+                    return (DateTime?)attrs.LastWriteTime;
+                }
+
+                return null;
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Generates a remote manifest of files in the destination directory using the destination app or PowerShell.
+        /// </summary>
+        public async Task<List<SimplyTransfer.Core.Models.ManifestItem>> GetRemoteManifestAsync(string remoteDirectoryPath, string validationMethod, CancellationToken cancellationToken = default)
+        {
+            if (_sshClient == null || !_sshClient.IsConnected)
+                throw new InvalidOperationException("SSH client is not connected.");
+
+            string winPath = NormalizePathForWindows(remoteDirectoryPath);
+            string psLiteral = winPath.Replace("'", "''");
+
+            string script = $@"
+$dir = '{psLiteral}'
+$mode = '{validationMethod}'
+if (-not (Test-Path -LiteralPath $dir)) {{ Write-Output '[]'; exit 0 }}
+$files = Get-ChildItem -LiteralPath $dir -Recurse -File
+$manifest = @()
+foreach ($f in $files) {{
+    $relPath = $f.FullName.Substring($dir.Length).TrimStart('\', '/').Replace('\', '/')
+    $item = @{{
+        FileName = $relPath
+        Size = $f.Length
+        LastWriteTimeUtc = $f.LastWriteTimeUtc.ToString('o')
+    }}
+    if ($mode -eq 'Hash') {{
+        $item.Sha256 = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLower()
+    }}
+    $manifest += $item
+}}
+$manifest | ConvertTo-Json -Depth 10 -Compress
+";
+            
+            // Execute simply via SimplyTransfer CLI if it exists, otherwise fallback to PowerShell
+            // But to be reliable on any host, we just execute the PowerShell script
+            string encodedScript = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script));
+            string cmdText = $"powershell -NoProfile -NonInteractive -EncodedCommand {encodedScript}";
+
+            return await Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var cmd = _sshClient.CreateCommand(cmdText);
+                // Can take longer for large directories
+                cmd.CommandTimeout = TimeSpan.FromMinutes(5);
+                string output = cmd.Execute();
+
+                if (!string.IsNullOrWhiteSpace(output))
+                {
+                    try
+                    {
+                        var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                        var manifest = System.Text.Json.JsonSerializer.Deserialize<List<SimplyTransfer.Core.Models.ManifestItem>>(output, options);
+                        return manifest ?? new List<SimplyTransfer.Core.Models.ManifestItem>();
+                    }
+                    catch
+                    {
+                        // JSON parsing failed
+                    }
+                }
+                return new List<SimplyTransfer.Core.Models.ManifestItem>();
             }, cancellationToken);
         }
 

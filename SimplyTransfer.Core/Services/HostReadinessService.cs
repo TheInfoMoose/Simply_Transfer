@@ -224,7 +224,7 @@ namespace SimplyTransfer.Core.Services
         /// <summary>
         /// Programmatically generates a modern Ed25519 key pair with strict NTFS ACLs.
         /// </summary>
-        public async Task<string> GenerateSourceKeyPairAsync(string? comment = null)
+        public async Task<string> GenerateSourceKeyPairAsync(string? comment = null, string keyFileName = "simplytransfer_ed25519")
         {
             string sshDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh");
             if (!Directory.Exists(sshDir))
@@ -232,7 +232,7 @@ namespace SimplyTransfer.Core.Services
                 Directory.CreateDirectory(sshDir);
             }
 
-            string keyPath = Path.Combine(sshDir, "simplytransfer_ed25519");
+            string keyPath = Path.Combine(sshDir, keyFileName);
             if (File.Exists(keyPath))
             {
                 throw new InvalidOperationException($"Key already exists at '{keyPath}'. Will not overwrite an existing private key.");
@@ -293,11 +293,11 @@ namespace SimplyTransfer.Core.Services
             // 1. Secure .ssh directory
             if (!string.IsNullOrEmpty(sshDir) && Directory.Exists(sshDir))
             {
-                ExecuteCommand("icacls.exe", $"\"{sshDir}\" /inheritance:r /grant:r \"{user}:(OI)(CI)(F)\" /grant:r \"*S-1-5-18:(OI)(CI)(F)\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\"");
+                ExecuteCommandAsync("icacls.exe", $"\"{sshDir}\" /inheritance:r /grant:r \"{user}:(OI)(CI)(F)\" /grant:r \"*S-1-5-18:(OI)(CI)(F)\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\"").GetAwaiter().GetResult();
             }
 
             // 2. Secure private key file
-            ExecuteCommand("icacls.exe", $"\"{resolvedPath}\" /inheritance:r /grant:r \"{user}:(F)\" /grant:r \"*S-1-5-18:(F)\"");
+            ExecuteCommandAsync("icacls.exe", $"\"{resolvedPath}\" /inheritance:r /grant:r \"{user}:(F)\" /grant:r \"*S-1-5-18:(F)\"").GetAwaiter().GetResult();
 
             _logger.LogSuccess($"Repaired strict NTFS ACLs on private key '{resolvedPath}'.");
         }
@@ -434,7 +434,7 @@ namespace SimplyTransfer.Core.Services
         /// <summary>
         /// Programmatically hardens and repairs destination administrators_authorized_keys ownership and ACLs.
         /// </summary>
-        public void RepairDestinationAcls()
+        public async Task RepairDestinationAclsAsync(Action<string>? outputHandler = null, CancellationToken cancellationToken = default)
         {
             string programDataSsh = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ssh");
             string adminAuthFile = Path.Combine(programDataSsh, "administrators_authorized_keys");
@@ -450,15 +450,15 @@ namespace SimplyTransfer.Core.Services
             }
 
             // 1. Take ownership to BUILTIN\Administrators (*S-1-5-32-544)
-            ExecuteCommand("takeown.exe", $"/F \"{adminAuthFile}\" /A");
+            await ExecuteCommandAsync("takeown.exe", $"/F \"{adminAuthFile}\" /A", outputHandler, cancellationToken);
 
             // 2. Set strict ACLs: Administrators:F, SYSTEM:F
-            ExecuteCommand("icacls.exe", $"\"{adminAuthFile}\" /reset");
-            ExecuteCommand("icacls.exe", $"\"{adminAuthFile}\" /inheritance:r /grant:r \"*S-1-5-32-544:F\" /grant:r \"*S-1-5-18:F\"");
-            ExecuteCommand("icacls.exe", $"\"{adminAuthFile}\" /setowner \"*S-1-5-32-544\"");
+            await ExecuteCommandAsync("icacls.exe", $"\"{adminAuthFile}\" /reset", outputHandler, cancellationToken);
+            await ExecuteCommandAsync("icacls.exe", $"\"{adminAuthFile}\" /inheritance:r /grant:r \"*S-1-5-32-544:F\" /grant:r \"*S-1-5-18:F\"", outputHandler, cancellationToken);
+            await ExecuteCommandAsync("icacls.exe", $"\"{adminAuthFile}\" /setowner \"*S-1-5-32-544\"", outputHandler, cancellationToken);
 
             // 3. Ensure parent directory permissions are also safe
-            ExecuteCommand("icacls.exe", $"\"{programDataSsh}\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\" /grant:r \"*S-1-5-18:(OI)(CI)(F)\"");
+            await ExecuteCommandAsync("icacls.exe", $"\"{programDataSsh}\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\" /grant:r \"*S-1-5-18:(OI)(CI)(F)\"", outputHandler, cancellationToken);
 
             _logger.LogSuccess($"Successfully hardened ownership and ACLs on '{adminAuthFile}'.");
         }
@@ -466,7 +466,7 @@ namespace SimplyTransfer.Core.Services
         /// <summary>
         /// Authorizes a client public key on this host for destination server operation.
         /// </summary>
-        public void AuthorizeKeyOnDestination(string publicKey, string destinationUser, string destinationDir = @"C:\Backups")
+        public async Task AuthorizeKeyOnDestinationAsync(string publicKey, string destinationUser, string destinationDir = @"C:\Backups", Action<string>? outputHandler = null, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(publicKey))
                 throw new ArgumentException("Public key string cannot be empty.", nameof(publicKey));
@@ -485,19 +485,19 @@ namespace SimplyTransfer.Core.Services
             }
 
             // Harden permissions
-            RepairDestinationAcls();
+            await RepairDestinationAclsAsync(outputHandler, cancellationToken);
 
             // Pre-create destination backup folder
             if (!Directory.Exists(destinationDir))
             {
                 Directory.CreateDirectory(destinationDir);
             }
-            ExecuteCommand("icacls.exe", $"\"{destinationDir}\" /grant:r \"{destinationUser}:(OI)(CI)(M)\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\"");
+            await ExecuteCommandAsync("icacls.exe", $"\"{destinationDir}\" /grant:r \"{destinationUser}:(OI)(CI)(M)\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\"", outputHandler, cancellationToken);
 
             // Restart sshd service if running
             try
             {
-                ExecuteCommand("powershell.exe", "-Command \"Set-Service sshd -StartupType Automatic -ErrorAction SilentlyContinue; Restart-Service sshd -ErrorAction SilentlyContinue\"");
+                await ExecuteCommandAsync("powershell.exe", "-Command \"Set-Service sshd -StartupType Automatic -ErrorAction SilentlyContinue; Restart-Service sshd -ErrorAction SilentlyContinue\"", outputHandler, cancellationToken);
             }
             catch { }
         }
@@ -506,21 +506,21 @@ namespace SimplyTransfer.Core.Services
 
         #region Native Setup & Cleanup
 
-        public void InstallOpenSshCapabilities(Action<string>? outputHandler = null)
+        public async Task InstallOpenSshCapabilitiesAsync(Action<string>? outputHandler = null, CancellationToken cancellationToken = default)
         {
             outputHandler?.Invoke("[SETUP] Installing OpenSSH Client via DISM...");
-            ExecuteCommand("dism.exe", "/Online /Add-Capability /CapabilityName:OpenSSH.Client~~~~0.0.1.0 /Quiet");
+            await ExecuteCommandAsync("dism.exe", "/Online /Add-Capability /CapabilityName:OpenSSH.Client~~~~0.0.1.0 /Quiet", outputHandler, cancellationToken);
             
             outputHandler?.Invoke("[SETUP] Installing OpenSSH Server via DISM...");
-            ExecuteCommand("dism.exe", "/Online /Add-Capability /CapabilityName:OpenSSH.Server~~~~0.0.1.0 /Quiet");
+            await ExecuteCommandAsync("dism.exe", "/Online /Add-Capability /CapabilityName:OpenSSH.Server~~~~0.0.1.0 /Quiet", outputHandler, cancellationToken);
         }
 
-        public void ConfigureSshServices(Action<string>? outputHandler = null)
+        public async Task ConfigureSshServicesAsync(Action<string>? outputHandler = null, CancellationToken cancellationToken = default)
         {
             outputHandler?.Invoke("[SETUP] Configuring sshd and ssh-agent services...");
 
-            ExecuteCommand("sc.exe", "config sshd start= auto");
-            ExecuteCommand("sc.exe", "config ssh-agent start= auto");
+            await ExecuteCommandAsync("sc.exe", "config sshd start= auto", outputHandler, cancellationToken);
+            await ExecuteCommandAsync("sc.exe", "config ssh-agent start= auto", outputHandler, cancellationToken);
 
             StartServiceIfStopped("sshd", outputHandler);
             StartServiceIfStopped("ssh-agent", outputHandler);
@@ -549,13 +549,13 @@ namespace SimplyTransfer.Core.Services
             }
         }
 
-        public void ConfigureFirewallPort22(Action<string>? outputHandler = null)
+        public async Task ConfigureFirewallPort22Async(Action<string>? outputHandler = null, CancellationToken cancellationToken = default)
         {
             outputHandler?.Invoke("[SETUP] Configuring Windows Defender Firewall for inbound SSH (Port 22)...");
-            ExecuteCommand("netsh.exe", "advfirewall firewall add rule name=\"OpenSSH Server (sshd)\" dir=in action=allow protocol=TCP localport=22");
+            await ExecuteCommandAsync("netsh.exe", "advfirewall firewall add rule name=\"OpenSSH Server (sshd)\" dir=in action=allow protocol=TCP localport=22", outputHandler, cancellationToken);
         }
 
-        public void ProvisionDestinationUser(string targetUser, string targetDir, string pubKeyPath, Action<string>? outputHandler = null)
+        public async Task ProvisionDestinationUserAsync(string targetUser, string targetDir, string pubKeyPath, Action<string>? outputHandler = null, CancellationToken cancellationToken = default)
         {
             outputHandler?.Invoke($"[SETUP] Provisioning destination for user '{targetUser}' and directory '{targetDir}'...");
 
@@ -566,7 +566,7 @@ namespace SimplyTransfer.Core.Services
                 // 1. Ensure OpenSSH ProgramData directory exists
                 string programDataSsh = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ssh");
                 if (!Directory.Exists(programDataSsh)) Directory.CreateDirectory(programDataSsh);
-                ExecuteCommand("icacls.exe", $"\"{programDataSsh}\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\" /grant:r \"*S-1-5-18:(OI)(CI)(F)\"");
+                await ExecuteCommandAsync("icacls.exe", $"\"{programDataSsh}\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\" /grant:r \"*S-1-5-18:(OI)(CI)(F)\"", outputHandler, cancellationToken);
 
                 // 2. Configure administrators_authorized_keys
                 string adminAuth = Path.Combine(programDataSsh, "administrators_authorized_keys");
@@ -574,9 +574,9 @@ namespace SimplyTransfer.Core.Services
                 {
                     File.AppendAllText(adminAuth, pubKeyContent + Environment.NewLine, Encoding.ASCII);
                 }
-                ExecuteCommand("takeown.exe", $"/F \"{adminAuth}\" /A");
-                ExecuteCommand("icacls.exe", $"\"{adminAuth}\" /inheritance:r /grant:r \"*S-1-5-32-544:F\" /grant:r \"*S-1-5-18:F\"");
-                ExecuteCommand("icacls.exe", $"\"{adminAuth}\" /setowner \"*S-1-5-32-544\"");
+                await ExecuteCommandAsync("takeown.exe", $"/F \"{adminAuth}\" /A", outputHandler, cancellationToken);
+                await ExecuteCommandAsync("icacls.exe", $"\"{adminAuth}\" /inheritance:r /grant:r \"*S-1-5-32-544:F\" /grant:r \"*S-1-5-18:F\"", outputHandler, cancellationToken);
+                await ExecuteCommandAsync("icacls.exe", $"\"{adminAuth}\" /setowner \"*S-1-5-32-544\"", outputHandler, cancellationToken);
                 outputHandler?.Invoke($"[OK] Configured {adminAuth}");
 
                 // 3. Configure user authorized_keys
@@ -592,13 +592,13 @@ namespace SimplyTransfer.Core.Services
                 {
                     File.AppendAllText(userAuth, pubKeyContent + Environment.NewLine, Encoding.ASCII);
                 }
-                ExecuteCommand("icacls.exe", $"\"{userSshDir}\" /inheritance:r /grant:r \"{targetUser}:(OI)(CI)(F)\" /grant:r \"*S-1-5-18:(OI)(CI)(F)\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\"");
-                ExecuteCommand("icacls.exe", $"\"{userAuth}\" /inheritance:r /grant:r \"{targetUser}:F\" /grant:r \"*S-1-5-18:F\" /grant:r \"*S-1-5-32-544:F\"");
+                await ExecuteCommandAsync("icacls.exe", $"\"{userSshDir}\" /inheritance:r /grant:r \"{targetUser}:(OI)(CI)(F)\" /grant:r \"*S-1-5-18:(OI)(CI)(F)\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\"", outputHandler, cancellationToken);
+                await ExecuteCommandAsync("icacls.exe", $"\"{userAuth}\" /inheritance:r /grant:r \"{targetUser}:F\" /grant:r \"*S-1-5-18:F\" /grant:r \"*S-1-5-32-544:F\"", outputHandler, cancellationToken);
                 outputHandler?.Invoke($"[OK] Configured {userAuth}");
 
                 // 4. Pre-create destination backup directory
                 if (!Directory.Exists(targetDir)) Directory.CreateDirectory(targetDir);
-                ExecuteCommand("icacls.exe", $"\"{targetDir}\" /grant:r \"{targetUser}:(OI)(CI)(M)\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\"");
+                await ExecuteCommandAsync("icacls.exe", $"\"{targetDir}\" /grant:r \"{targetUser}:(OI)(CI)(M)\" /grant:r \"*S-1-5-32-544:(OI)(CI)(F)\"", outputHandler, cancellationToken);
                 outputHandler?.Invoke($"[OK] Pre-created backup folder: {targetDir}");
 
                 outputHandler?.Invoke("[OK] User provisioning complete.");
@@ -606,6 +606,37 @@ namespace SimplyTransfer.Core.Services
             catch (Exception ex)
             {
                 outputHandler?.Invoke($"[ERROR] Failed to provision user: {ex.Message}");
+            }
+        }
+
+        public void RemoveSecurityKey(string privateKeyPath, Action<string>? outputHandler = null)
+        {
+            if (string.IsNullOrWhiteSpace(privateKeyPath)) return;
+            string pubKeyPath = privateKeyPath + ".pub";
+            
+            if (File.Exists(privateKeyPath))
+            {
+                try
+                {
+                    File.Delete(privateKeyPath);
+                    outputHandler?.Invoke($"[OK] Removed private key: {privateKeyPath}");
+                }
+                catch (Exception ex)
+                {
+                    outputHandler?.Invoke($"[WARN] Could not remove {privateKeyPath}: {ex.Message}");
+                }
+            }
+            if (File.Exists(pubKeyPath))
+            {
+                try
+                {
+                    File.Delete(pubKeyPath);
+                    outputHandler?.Invoke($"[OK] Removed public key: {pubKeyPath}");
+                }
+                catch (Exception ex)
+                {
+                    outputHandler?.Invoke($"[WARN] Could not remove {pubKeyPath}: {ex.Message}");
+                }
             }
         }
 
@@ -1069,8 +1100,9 @@ namespace SimplyTransfer.Core.Services
             return false;
         }
 
-        private static void ExecuteCommand(string fileName, string arguments)
+        private static async Task ExecuteCommandAsync(string fileName, string arguments, Action<string>? outputHandler = null, CancellationToken cancellationToken = default, int timeoutMs = 120000)
         {
+            outputHandler?.Invoke($"[EXEC] {fileName} {arguments}");
             var psi = new ProcessStartInfo
             {
                 FileName = fileName,
@@ -1081,7 +1113,35 @@ namespace SimplyTransfer.Core.Services
                 RedirectStandardError = true
             };
             using var proc = Process.Start(psi);
-            proc?.WaitForExit();
+            if (proc == null) return;
+
+            proc.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) outputHandler?.Invoke($"[OUT] {e.Data}"); };
+            proc.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) outputHandler?.Invoke($"[ERR] {e.Data}"); };
+
+            proc.BeginOutputReadLine();
+            proc.BeginErrorReadLine();
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeoutMs);
+
+            try
+            {
+                await proc.WaitForExitAsync(timeoutCts.Token);
+                outputHandler?.Invoke($"[EXEC] '{fileName}' completed with ExitCode: {proc.ExitCode}");
+            }
+            catch (OperationCanceledException)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    outputHandler?.Invoke($"[CANCEL] Command '{fileName}' was cancelled by operator. Terminating process...");
+                }
+                else
+                {
+                    outputHandler?.Invoke($"[TIMEOUT] Command '{fileName}' hung after {timeoutMs}ms. Terminating process...");
+                }
+                try { proc.Kill(true); } catch { }
+                throw;
+            }
         }
 
         #endregion

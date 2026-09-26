@@ -37,7 +37,9 @@ namespace SimplyTransfer.Core.Models
         /// <summary>Local and remote SHA-256 hashes match exactly.</summary>
         Verified,
         /// <summary>Local and remote SHA-256 hashes do not match (integrity failure).</summary>
-        Mismatch
+        Mismatch,
+        /// <summary>File was skipped, so validation was bypassed.</summary>
+        Skipped
     }
 
     /// <summary>

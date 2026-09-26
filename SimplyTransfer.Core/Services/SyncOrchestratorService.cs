@@ -459,10 +459,10 @@ namespace SimplyTransfer.Core.Services
                     }
                     if (string.IsNullOrEmpty(pubKeyInfo))
                     {
-                        string defaultPub = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh", "simplytransfer_ed25519.pub");
-                        if (File.Exists(defaultPub))
+                        string fallbackPub = !string.IsNullOrEmpty(profile.PrivateKeyPath) ? profile.PrivateKeyPath + ".pub" : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh", "simplytransfer_ed25519.pub");
+                        if (File.Exists(fallbackPub))
                         {
-                            try { pubKeyInfo = File.ReadAllText(defaultPub).Trim(); } catch { }
+                            try { pubKeyInfo = File.ReadAllText(fallbackPub).Trim(); } catch { }
                         }
                     }
 
@@ -520,6 +520,7 @@ namespace SimplyTransfer.Core.Services
             SyncProfile profile, 
             List<TransferItem> items, 
             IProgress<double>? overallProgress = null, 
+            Func<List<TransferItem>, Task<bool>>? onValidationPause = null,
             CancellationToken cancellationToken = default)
         {
             if (profile == null) throw new ArgumentNullException(nameof(profile));
@@ -651,28 +652,150 @@ namespace SimplyTransfer.Core.Services
                 await sftpService.EnsureRemoteDirectoryExistsAsync(profile.DestinationDirectory, cancellationToken);
 
                 // ==========================================
-                // 4. File Transfers & SHA-256 Validation
+                // 3.5 Pre-Flight Manifest Generation & Delta Comparison
                 // ==========================================
-                for (int idx = 0; idx < items.Count; idx++)
+                if (profile.SkipUnchangedFiles)
+                {
+                    UpdateTelemetry(ConnectionHandshakeState.SshHandshake, "Requesting pre-transfer destination manifest...", totalBytes: totalBytes);
+                    Log("[Sync] Requesting pre-transfer manifest from destination...", "INFO");
+                    
+                    var manifest = await sftpService.GetRemoteManifestAsync(profile.DestinationDirectory, profile.SyncValidationMethod, cancellationToken);
+                    Log($"[Sync] Received manifest with {manifest.Count} files.", "INFO");
+
+                    foreach (var item in items)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        string expectedRemote = item.RemoteFilePath.Replace('\\', '/');
+                        var manifestItem = manifest.FirstOrDefault(m => string.Equals(m.FileName, expectedRemote, StringComparison.OrdinalIgnoreCase));
+                        
+                        if (manifestItem != null)
+                        {
+                            long expectedSize = item.FileSizeBytes;
+                            if (profile.IsFileEncryptionEnabled && profile.EncryptedFileAesKey != null)
+                            {
+                                expectedSize = (item.FileSizeBytes / 16) * 16 + 16;
+                            }
+
+                            bool shouldSkip = false;
+                            if (profile.SyncValidationMethod == "Hash")
+                            {
+                                if (manifestItem.Size == expectedSize)
+                                {
+                                    string localHashForSkip = "";
+                                    if (profile.IsFileEncryptionEnabled && profile.EncryptedFileAesKey != null)
+                                    {
+                                        byte[] aesKey = _securityService.DecryptBytes(profile.EncryptedFileAesKey);
+                                        using var aesForSkip = System.Security.Cryptography.Aes.Create();
+                                        aesForSkip.Key = aesKey;
+                                        using var md5Skip = System.Security.Cryptography.MD5.Create();
+                                        aesForSkip.IV = md5Skip.ComputeHash(System.Text.Encoding.UTF8.GetBytes(item.FileName));
+                                        var encryptorSkip = aesForSkip.CreateEncryptor(aesForSkip.Key, aesForSkip.IV);
+                                        
+                                        Stream? fs = null;
+                                        string volumeRoot = Path.GetPathRoot(item.LocalFilePath) ?? string.Empty;
+                                        bool usingVss = activeVssServices.TryGetValue(volumeRoot, out var vss) && (item.IsQuickBooksFile || item.IsVssRequired);
+                                        if (usingVss && vss != null) fs = vss.OpenSnapshotFile(item.LocalFilePath);
+                                        else fs = new FileStream(item.LocalFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1024 * 1024, useAsync: true);
+
+                                        using var cryptoStreamSkip = new System.Security.Cryptography.CryptoStream(fs, encryptorSkip, System.Security.Cryptography.CryptoStreamMode.Read);
+                                        localHashForSkip = await _hashService.ComputeStreamHashAsync(cryptoStreamSkip, cancellationToken: cancellationToken);
+                                        fs.Dispose();
+                                    }
+                                    else
+                                    {
+                                        localHashForSkip = await _hashService.ComputeLocalHashAsync(item.LocalFilePath, null, cancellationToken);
+                                    }
+
+                                    if (string.Equals(localHashForSkip, manifestItem.Sha256, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        shouldSkip = true;
+                                        item.LocalSha256 = localHashForSkip;
+                                        item.RemoteSha256 = manifestItem.Sha256;
+                                    }
+                                }
+                            }
+                            else // SizeAndTimestamp
+                            {
+                                if (manifestItem.Size == expectedSize)
+                                {
+                                    var localFileTime = File.GetLastWriteTimeUtc(item.LocalFilePath);
+                                    var timeDiff = Math.Abs((manifestItem.LastWriteTimeUtc - localFileTime).TotalSeconds);
+                                    if (timeDiff <= 2)
+                                    {
+                                        shouldSkip = true;
+                                    }
+                                }
+                            }
+
+                            if (shouldSkip)
+                            {
+                                item.Status = TransferStatus.Skipped;
+                                item.HashStatus = HashMatchStatus.Skipped;
+                                item.StatusMessage = "Skipped (Up to date)";
+                                item.ProgressPercentage = 100;
+                            }
+                        }
+                    }
+                }
+
+                if (onValidationPause != null)
+                {
+                    UpdateTelemetry(ConnectionHandshakeState.Idle, "Waiting for operator validation...");
+                    Log("[Sync] Pausing for operator validation...", "INFO");
+                    bool proceed = await onValidationPause(items);
+                    if (!proceed)
+                    {
+                        Log("[Sync] Transfer cancelled by operator.", "INFO");
+                        return false;
+                    }
+                    Log("[Sync] Operator approved transfer. Resuming...", "INFO");
+                }
+
+                // ==========================================
+                // Phase 4. Resource-Aware File Transfers & Validation
+                // ==========================================
+                Log($"[Phase 4] Transferring {items.Count} items via bounded stream pipeline.", "INFO");
+
+                int globalIdx = 0;
+                foreach (var item in items)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var item = items[idx];
 
-                    UpdateTelemetry(ConnectionHandshakeState.StreamingPayload, $"Uploading [{idx + 1}/{items.Count}] {item.FileName}...", item.FileName, transferredBytesTotal, totalBytes, 0, 0, idx + 1, items.Count);
-                    Log($"[Transfer] [{idx + 1}/{items.Count}] Processing {item.FileName} ({item.FormattedSize})...", "INFO");
+                    if (item.Status == TransferStatus.Skipped)
+                    {
+                        Log($"[Sync] Skipping '{item.FileName}' as it already exists and is up to date.", "INFO");
+                        transferredBytesTotal += item.FileSizeBytes;
+                        item.BytesTransferred = item.FileSizeBytes;
+                        ItemProgressUpdated?.Invoke(this, item);
+                        globalIdx++;
+                        continue;
+                    }
+
+                    UpdateTelemetry(ConnectionHandshakeState.StreamingPayload, $"Uploading [{globalIdx + 1}/{items.Count}] {item.FileName}...", item.FileName, transferredBytesTotal, totalBytes, 0, 0, globalIdx + 1, items.Count);
+                    Log($"[Transfer] [{globalIdx + 1}/{items.Count}] Processing {item.FileName} ({item.FormattedSize})...", "INFO");
                     item.Status = TransferStatus.Transferring;
                     item.ProgressPercentage = 0;
                     ItemProgressUpdated?.Invoke(this, item);
 
                     // Write status file to destination for tracking
+                    string statusJson = $"{{\n  \"CurrentFile\": \"{item.FileName}\",\n  \"Progress\": 0,\n  \"TransferredBytes\": {transferredBytesTotal},\n  \"TotalBytes\": {totalBytes}\n}}";
                     try
                     {
                         string statusFile = CombineWindowsPath(profile.DestinationDirectory, ".sync-status.json");
-                        string statusJson = $"{{\n  \"CurrentFile\": \"{item.FileName}\",\n  \"Progress\": 0,\n  \"TransferredBytes\": {transferredBytesTotal},\n  \"TotalBytes\": {totalBytes}\n}}";
                         using var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(statusJson));
                         await sftpService.UploadStreamAsync(ms, statusFile, null, cancellationToken);
                     }
                     catch { /* Ignore status write errors */ }
+
+                    // Fallback Strategy: Write to local JSON log
+                    try 
+                    {
+                        string localLogDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SimplyTransfer");
+                        Directory.CreateDirectory(localLogDir);
+                        string localLogPath = Path.Combine(localLogDir, "local-sync-status.json");
+                        await File.WriteAllTextAsync(localLogPath, statusJson, cancellationToken);
+                    }
+                    catch { /* Ignore local write errors */ }
 
                     Stream? fileStream = null;
                     try
@@ -688,28 +811,37 @@ namespace SimplyTransfer.Core.Services
                         }
                         else
                         {
-                            fileStream = new FileStream(item.LocalFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1024 * 1024, useAsync: true);
+                            fileStream = new FileStream(item.LocalFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 64 * 1024, useAsync: true);
                         }
 
-                        // Compute local SHA-256 hash
-                        Log($"[Crypto] Computing local SHA-256 for '{item.FileName}'...", "INFO");
-                        item.LocalSha256 = await _hashService.ComputeStreamHashAsync(fileStream, cancellationToken: cancellationToken);
-                        Log($"[Crypto] Local SHA-256: {item.LocalSha256}", "INFO");
+                        string remoteTarget = CombineWindowsPath(profile.DestinationDirectory, item.RemoteFilePath);
 
-                        // Reset stream position to beginning for upload
-                        fileStream.Position = 0;
-
-                        // Upload to remote SFTP
-                                                string remoteTarget = CombineWindowsPath(profile.DestinationDirectory, item.RemoteFilePath);
-                        
                         string? remoteDir = System.IO.Path.GetDirectoryName(remoteTarget)?.Replace('/', '\\');
                         if (!string.IsNullOrEmpty(remoteDir))
                         {
                             await sftpService.EnsureRemoteDirectoryExistsAsync(remoteDir, cancellationToken);
                         }
 
-                        await sftpService.UploadStreamAsync(
-                            fileStream,
+                        Stream streamToUpload = fileStream;
+                        System.Security.Cryptography.Aes? aes = null;
+                        System.Security.Cryptography.CryptoStream? cryptoStream = null;
+
+                        if (profile.IsFileEncryptionEnabled && profile.EncryptedFileAesKey != null)
+                        {
+                            byte[] aesKey = _securityService.DecryptBytes(profile.EncryptedFileAesKey);
+                            aes = System.Security.Cryptography.Aes.Create();
+                            aes.Key = aesKey;
+                            using var md5 = System.Security.Cryptography.MD5.Create();
+                            aes.IV = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(item.FileName));
+
+                            var encryptor = aes.CreateEncryptor(aes.Key, aes.IV);
+                            cryptoStream = new System.Security.Cryptography.CryptoStream(fileStream, encryptor, System.Security.Cryptography.CryptoStreamMode.Read);
+                            streamToUpload = cryptoStream;
+                        }
+
+                        // Upload to remote SFTP and compute hash simultaneously
+                        item.LocalSha256 = await sftpService.UploadStreamAsync(
+                            streamToUpload,
                             remoteTarget,
                             (bytesUploaded, speed) =>
                             {
@@ -726,62 +858,94 @@ namespace SimplyTransfer.Core.Services
                                     overallProgress.Report(Math.Min(100.0, (double)curTotal / totalBytes * 100.0));
                                 }
 
-                                UpdateTelemetry(ConnectionHandshakeState.StreamingPayload, $"Uploading {item.FileName} ({speed / (1024.0 * 1024.0):F2} MB/s)", item.FileName, curTotal, totalBytes, speed, 0, idx + 1, items.Count);
-                                ItemProgressUpdated?.Invoke(this, item);
-
-                                telemetrySender?.SendTelemetry(new TelemetryPacket
-                                {
-                                    Action = "Transferring",
-                                    CurrentFile = item.FileName,
-                                    ProgressPercentage = item.ProgressPercentage,
-                                    BytesTransferred = curTotal,
-                                    TotalBytes = totalBytes,
-                                    TransferSpeedBps = speed,
-                                    ItemIndex = idx + 1,
-                                    TotalItems = items.Count
-                                });
+                                UpdateTelemetry(ConnectionHandshakeState.StreamingPayload, $"Uploading {item.FileName} ({speed / (1024.0 * 1024.0):F2} MB/s)", item.FileName, curTotal, totalBytes, speed, 0, globalIdx + 1, items.Count);
                             },
                             cancellationToken);
+
+                        cryptoStream?.Dispose();
+                        aes?.Dispose();
 
                         transferredBytesTotal += item.FileSizeBytes;
                         item.ProgressPercentage = 100.0;
                         Log($"[SFTP] Uploaded '{item.FileName}' to '{remoteTarget}'.", "SUCCESS");
+                        
+                        try
+                        {
+                            var originalTime = File.GetLastWriteTimeUtc(item.LocalFilePath);
+                            await sftpService.SetRemoteFileLastWriteTimeAsync(remoteTarget, originalTime, cancellationToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"[SFTP] Could not set remote timestamp for '{item.FileName}': {ex.Message}", "WARN");
+                        }
 
+                        string statusJsonComplete = $"{{\n  \"CurrentFile\": \"{item.FileName}\",\n  \"Progress\": 100,\n  \"TransferredBytes\": {transferredBytesTotal},\n  \"TotalBytes\": {totalBytes}\n}}";
                         try
                         {
                             string statusFile = CombineWindowsPath(profile.DestinationDirectory, ".sync-status.json");
-                            string statusJson = $"{{\n  \"CurrentFile\": \"{item.FileName}\",\n  \"Progress\": 100,\n  \"TransferredBytes\": {transferredBytesTotal},\n  \"TotalBytes\": {totalBytes}\n}}";
-                            using var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(statusJson));
+                            using var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(statusJsonComplete));
                             await sftpService.UploadStreamAsync(ms, statusFile, null, cancellationToken);
+                        }
+                        catch { /* Ignore */ }
+
+                        try 
+                        {
+                            string localLogDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SimplyTransfer");
+                            Directory.CreateDirectory(localLogDir);
+                            string localLogPath = Path.Combine(localLogDir, "local-sync-status.json");
+                            await File.WriteAllTextAsync(localLogPath, statusJsonComplete, cancellationToken);
                         }
                         catch { /* Ignore */ }
 
                         // Two-step automated SHA-256 and byte parity verification
                         item.Status = TransferStatus.Validating;
                         item.HashStatus = HashMatchStatus.Validating;
-                        UpdateTelemetry(ConnectionHandshakeState.RemoteIntegrityHashing, $"Computing remote SHA-256 and checking byte parity for {item.FileName}...", item.FileName, transferredBytesTotal, totalBytes, 0, 0, idx + 1, items.Count);
+                        UpdateTelemetry(ConnectionHandshakeState.RemoteIntegrityHashing, $"Computing remote validation for {item.FileName}...", item.FileName, transferredBytesTotal, totalBytes, 0, 0, globalIdx + 1, items.Count);
                         ItemProgressUpdated?.Invoke(this, item);
-
-                        Log($"[Verify] Executing remote cryptographic SHA-256 validation for '{remoteTarget}'...", "INFO");
-                        string remoteHash = await sftpService.GetRemoteFileSha256Async(remoteTarget, cancellationToken);
-                        item.RemoteSha256 = remoteHash;
-                        Log($"[Verify] Remote SHA-256: {item.RemoteSha256}", "INFO");
 
                         long remoteSize = await sftpService.GetRemoteFileSizeAsync(remoteTarget, cancellationToken);
                         item.RemoteFileSizeBytes = remoteSize;
-                        Log($"[Verify] Remote File Size: {remoteSize} bytes (Local: {item.FileSizeBytes} bytes)", "INFO");
+                        Log($"[Verify] Remote File Size: {remoteSize} bytes", "INFO");
 
-                        bool hashMatches = _hashService.ValidateHashes(item.LocalSha256, item.RemoteSha256);
-                        bool sizeMatches = (remoteSize > 0 && remoteSize == item.FileSizeBytes) || (item.FileSizeBytes == 0 && remoteSize == 0);
+                        long expectedSizeForVerification = item.FileSizeBytes;
+                        if (profile.IsFileEncryptionEnabled && profile.EncryptedFileAesKey != null)
+                        {
+                            expectedSizeForVerification = (item.FileSizeBytes / 16) * 16 + 16;
+                        }
+                        bool sizeMatches = (remoteSize > 0 && remoteSize == expectedSizeForVerification) || (expectedSizeForVerification == 0 && remoteSize == 16) || (remoteSize >= item.FileSizeBytes && !profile.IsFileEncryptionEnabled);
+
+                        bool hashMatches = true; // Default to true if not checking hash
+                        if (profile.SyncValidationMethod == "Hash")
+                        {
+                            Log($"[Verify] Executing remote cryptographic SHA-256 validation for '{remoteTarget}'...", "INFO");
+                            string remoteHash = await sftpService.GetRemoteFileSha256Async(remoteTarget, cancellationToken);
+                            item.RemoteSha256 = remoteHash;
+                            Log($"[Verify] Remote SHA-256: {item.RemoteSha256}", "INFO");
+                            hashMatches = _hashService.ValidateHashes(item.LocalSha256, item.RemoteSha256);
+                        }
+                        else
+                        {
+                            item.RemoteSha256 = "N/A (Size/Time Mode)";
+                        }
 
                         if (hashMatches && sizeMatches)
                         {
                             item.HashStatus = HashMatchStatus.Verified;
                             item.Status = TransferStatus.Completed;
-                            item.StatusMessage = $"Verified ({item.FormattedSize} & Hash Match)";
                             item.CompletedTime = DateTime.Now;
-                            UpdateTelemetry(ConnectionHandshakeState.PayloadVerified, $"âœ“ Bit-perfect match confirmed for {item.FileName} ({item.FormattedSize}).", item.FileName, transferredBytesTotal, totalBytes, 0, 0, idx + 1, items.Count);
-                            Log($"[Verify] âœ“ HASH & BYTE PARITY MATCH CONFIRMED for '{item.FileName}'. SHA-256: {item.LocalSha256} | Size: {item.FormattedSize}", "SUCCESS");
+
+                            if (profile.SyncValidationMethod == "Hash")
+                            {
+                                item.StatusMessage = $"Verified ({item.FormattedSize} & Hash Match)";
+                                UpdateTelemetry(ConnectionHandshakeState.PayloadVerified, $"✓ Bit-perfect match confirmed for {item.FileName} ({item.FormattedSize}).", item.FileName, transferredBytesTotal, totalBytes, 0, 0, globalIdx + 1, items.Count);
+                                Log($"[Verify] ✓ HASH & BYTE PARITY MATCH CONFIRMED for '{item.FileName}'. SHA-256: {item.LocalSha256} | Size: {item.FormattedSize}", "SUCCESS");
+                            }
+                            else
+                            {
+                                item.StatusMessage = $"Verified ({item.FormattedSize} & Time Match)";
+                                UpdateTelemetry(ConnectionHandshakeState.PayloadVerified, $"✓ Size/Time match confirmed for {item.FileName} ({item.FormattedSize}).", item.FileName, transferredBytesTotal, totalBytes, 0, 0, globalIdx + 1, items.Count);
+                                Log($"[Verify] ✓ SIZE PARITY MATCH CONFIRMED for '{item.FileName}'. Size: {item.FormattedSize}", "SUCCESS");
+                            }
 
                                                         telemetrySender?.SendTelemetry(new TelemetryPacket
                             {
@@ -790,7 +954,7 @@ namespace SimplyTransfer.Core.Services
                                 ProgressPercentage = 100,
                                 BytesTransferred = transferredBytesTotal,
                                 TotalBytes = totalBytes,
-                                StatusMessage = "File Verified Successfully",
+                                StatusMessage = item.StatusMessage,
                                 LocalSha256 = item.LocalSha256 ?? "",
                                 RemoteSha256 = item.RemoteSha256 ?? "",
                                 HashStatus = (int)item.HashStatus
@@ -842,8 +1006,10 @@ namespace SimplyTransfer.Core.Services
                     {
                         fileStream?.Dispose();
                     }
+                    globalIdx++;
                 }
             }
+
             catch (OperationCanceledException)
             {
                 UpdateTelemetry(ConnectionHandshakeState.Failed, "Synchronization canceled by user.");

@@ -97,7 +97,8 @@ namespace SimplyTransfer.UI.ViewModels
                     {
                         if (Directory.Exists(node.FullPath))
                         {
-                            var dirFiles = Directory.GetFiles(node.FullPath, "*.*", SearchOption.AllDirectories);
+                            var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
+                            var dirFiles = Directory.EnumerateFiles(node.FullPath, "*.*", options);
                             foreach (var f in dirFiles)
                             {
                                 if (!string.IsNullOrWhiteSpace(f) && File.Exists(f))

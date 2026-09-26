@@ -118,5 +118,25 @@ namespace SimplyTransfer.Core.Models
         /// Gets or sets the target directory to configure when running the host provisioning script.
         /// </summary>
         public string DestinationScriptDirectory { get; set; } = @"C:\Backups";
+
+        /// <summary>
+        /// Gets or sets whether individual files should be AES-256 encrypted before transfer.
+        /// </summary>
+        public bool IsFileEncryptionEnabled { get; set; } = false;
+
+        /// <summary>
+        /// Gets or sets the DPAPI-encrypted AES-256 key for file encryption.
+        /// </summary>
+        public byte[]? EncryptedFileAesKey { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether to skip unchanged files on the destination during sync.
+        /// </summary>
+        public bool SkipUnchangedFiles { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets the method used to validate destination files ("SizeAndTimestamp" or "Hash").
+        /// </summary>
+        public string SyncValidationMethod { get; set; } = "SizeAndTimestamp";
     }
 }

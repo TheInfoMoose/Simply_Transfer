@@ -40,6 +40,15 @@
                          StrokeThickness="2" 
                          StrokeDashArray="2,2" 
                          Visibility="Collapsed"/>
+                         
+                <!-- Blue Skipped Arrow/Dash -->
+                <Path x:Name="IconSkipped" 
+                      Data="M 2,7 L 8,7 M 8,7 L 5,4 M 8,7 L 5,10" 
+                      Stroke="#38BDF8" 
+                      StrokeThickness="2" 
+                      StrokeStartLineCap="Round" 
+                      StrokeEndLineCap="Round"
+                      Visibility="Collapsed"/>
             </Grid>
 
             <TextBlock x:Name="StatusText" 

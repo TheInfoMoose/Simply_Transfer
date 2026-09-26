@@ -83,6 +83,7 @@ namespace SimplyTransfer.UI.Controls
             IconVerified.Visibility = Visibility.Collapsed;
             IconFailed.Visibility = Visibility.Collapsed;
             IconValidating.Visibility = Visibility.Collapsed;
+            IconSkipped.Visibility = Visibility.Collapsed;
 
             switch (Status)
             {
@@ -108,6 +109,14 @@ namespace SimplyTransfer.UI.Controls
                     IconValidating.Visibility = Visibility.Visible;
                     StatusText.Text = "Validating...";
                     StatusText.Foreground = new SolidColorBrush(Color.FromRgb(251, 191, 36));
+                    break;
+
+                case HashMatchStatus.Skipped:
+                    BadgeBorder.Background = new SolidColorBrush(Color.FromArgb(50, 56, 189, 248)); // Soft blue
+                    BadgeBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(56, 189, 248));
+                    IconSkipped.Visibility = Visibility.Visible;
+                    StatusText.Text = "Skipped";
+                    StatusText.Foreground = new SolidColorBrush(Color.FromRgb(125, 211, 252));
                     break;
 
                 case HashMatchStatus.Pending:

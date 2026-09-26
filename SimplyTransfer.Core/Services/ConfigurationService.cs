@@ -45,6 +45,7 @@ namespace SimplyTransfer.Core.Services
             try
             {
                 var json = JsonSerializer.Serialize(profiles, _jsonOptions);
+                Directory.CreateDirectory(Path.GetDirectoryName(_configFilePath)!);
                 File.WriteAllText(_configFilePath, json);
             }
             catch (Exception ex)
@@ -109,9 +110,13 @@ namespace SimplyTransfer.Core.Services
                 AutoDetectQuickBooks = profile.AutoDetectQuickBooks,
                 SourcePaths = new List<string>(profile.SourcePaths),
                 DestinationDirectory = profile.DestinationDirectory,
+                IsFileEncryptionEnabled = profile.IsFileEncryptionEnabled,
+                SkipUnchangedFiles = profile.SkipUnchangedFiles,
+                SyncValidationMethod = profile.SyncValidationMethod,
                 // Include DPAPI blobs only if explicitly desired (note: DPAPI is machine/user specific)
                 EncryptedPrivateKey = includeEncryptedSecrets ? profile.EncryptedPrivateKey : null,
-                EncryptedPassphrase = includeEncryptedSecrets ? profile.EncryptedPassphrase : null
+                EncryptedPassphrase = includeEncryptedSecrets ? profile.EncryptedPassphrase : null,
+                EncryptedFileAesKey = includeEncryptedSecrets ? profile.EncryptedFileAesKey : null
             };
 
             var json = JsonSerializer.Serialize(exportItem, _jsonOptions);

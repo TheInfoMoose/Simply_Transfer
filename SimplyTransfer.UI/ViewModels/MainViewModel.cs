@@ -114,6 +114,9 @@ namespace SimplyTransfer.UI.ViewModels
         private ObservableCollection<string> _scriptOutputLines = new();
 
         [ObservableProperty]
+        private ObservableCollection<string> _syncEventLogLines = new();
+
+        [ObservableProperty]
         private string _scriptRunStatus = "Ready";
 
         [ObservableProperty]
@@ -533,140 +536,223 @@ namespace SimplyTransfer.UI.ViewModels
                 StatusMessage = "Gathering selected files...";
 
                 // 2. Gather selected files from file tree
-                var selectedFiles = FileBrowser.GetSelectedFilePaths();
-
-                // Also check if profile has configured source paths
-                if (selectedFiles.Count == 0 && SelectedProfile.SourcePaths.Count > 0)
+                // Move gathering and queue building to background thread to prevent UI thread blocking and crashes
+                
+                var sourcePaths = SelectedProfile.SourcePaths?.ToList() ?? new List<string>();
+                var useVssForLockedFiles = SelectedProfile.UseVssForLockedFiles;
+                
+                // Pre-calculate checked folders from the tree for O(1) or O(K) lookup, instead of doing it per file
+                var checkedFolders = new List<string>();
+                if (FileBrowser != null && FileBrowser.RootNodes != null)
                 {
-                    foreach (var path in SelectedProfile.SourcePaths)
+                    var nodeQueue = new System.Collections.Generic.Queue<SimplyTransfer.UI.ViewModels.FileNode>(FileBrowser.RootNodes);
+                    while (nodeQueue.Count > 0)
                     {
-                        if (File.Exists(path))
+                        var node = nodeQueue.Dequeue();
+                        if (node.IsDirectory && node.IsSelected == true)
                         {
-                            selectedFiles.Add(path);
+                            checkedFolders.Add(node.FullPath);
                         }
-                        else if (Directory.Exists(path))
+                        if (node.IsSelected != false && node.Children != null)
                         {
-                            try
-                            {
-                                selectedFiles.AddRange(Directory.GetFiles(path, "*.*", SearchOption.AllDirectories));
-                            }
-                            catch { }
+                            foreach (var child in node.Children) nodeQueue.Enqueue(child);
                         }
                     }
-                }
-
-                // Filter to only non-empty, existing files
-                selectedFiles = selectedFiles.Where(f => !string.IsNullOrWhiteSpace(f) && File.Exists(f)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-
-                if (selectedFiles.Count == 0)
-                {
-                    MessageBox.Show("Please select one or more files or folders in the file browser to transfer.", "Simply Transfer", MessageBoxButton.OK, MessageBoxImage.Information);
-                    StatusMessage = "Ready";
-                    return;
-                }
-
-                // 3. Build transfer items
-                TransferQueue.Clear();
-                foreach (var filePath in selectedFiles)
-                {
-                    try
-                    {
-                        var fileInfo = new FileInfo(filePath);
-                        string ext = fileInfo.Extension;
-                        bool isQb = string.Equals(ext, ".qbw", StringComparison.OrdinalIgnoreCase) ||
-                                    string.Equals(ext, ".tlg", StringComparison.OrdinalIgnoreCase) ||
-                                    string.Equals(ext, ".qbb", StringComparison.OrdinalIgnoreCase) ||
-                                    string.Equals(ext, ".nd", StringComparison.OrdinalIgnoreCase) ||
-                                    string.Equals(ext, ".qbm", StringComparison.OrdinalIgnoreCase) ||
-                                    string.Equals(ext, ".qbx", StringComparison.OrdinalIgnoreCase) ||
-                                    string.Equals(ext, ".qby", StringComparison.OrdinalIgnoreCase) ||
-                                    fileInfo.FullName.IndexOf(".qbw\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                    fileInfo.FullName.IndexOf(".tlg\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                    fileInfo.FullName.IndexOf(".qbb\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                    fileInfo.FullName.IndexOf(".nd\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                    fileInfo.FullName.IndexOf(".qbm\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                    fileInfo.FullName.IndexOf(".qbx\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                    fileInfo.FullName.IndexOf(".qby\\", StringComparison.OrdinalIgnoreCase) >= 0;
-
-                        string remoteTarget = fileInfo.Name;
-                        string? rootFolder = SelectedProfile?.SourcePaths?.OrderByDescending(p => p.Length)
-                            .FirstOrDefault(p => fileInfo.FullName.StartsWith(p, StringComparison.OrdinalIgnoreCase));
-                            
-                        // Find the deepest explicitly checked folder in the UI
-                        if (string.IsNullOrEmpty(rootFolder) && FileBrowser != null && FileBrowser.RootNodes != null)
-                        {
-                            var queue = new System.Collections.Generic.Queue<SimplyTransfer.UI.ViewModels.FileNode>(FileBrowser.RootNodes);
-                            int maxLen = -1;
-                            while (queue.Count > 0)
-                            {
-                                var node = queue.Dequeue();
-                                if (node.IsDirectory && node.IsSelected == true && fileInfo.FullName.StartsWith(node.FullPath, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    if (node.FullPath.Length > maxLen)
-                                    {
-                                        maxLen = node.FullPath.Length;
-                                        rootFolder = node.FullPath;
-                                    }
-                                }
-                                // If the node is partially selected (null) or selected (true), check its children
-                                if (node.IsSelected != false && node.Children != null)
-                                {
-                                    foreach (var child in node.Children) queue.Enqueue(child);
-                                }
-                            }
-                        }
-                        
-                        if (!string.IsNullOrEmpty(rootFolder))
-                        {
-                            var dirInfo = new DirectoryInfo(rootFolder);
-                            string folderName = dirInfo.Name;
-                            // Ensure drive roots (like C:\) don't become the folder name, instead use "C_Drive" or drop it.
-                            if (folderName.EndsWith(":\\") || folderName.EndsWith(":")) 
-                            {
-                                folderName = folderName.TrimEnd(':', '\\') + "_Drive";
-                            }
-                            
-                            string rel = fileInfo.FullName.Substring(rootFolder.Length).TrimStart('\\', '/');
-                            remoteTarget = Path.Combine(folderName, rel).Replace('\\', '/');
-                        }
-
-                        var item = new TransferItem
-                        {
-                            FileName = fileInfo.Name,
-                            LocalFilePath = fileInfo.FullName,
-                            RemoteFilePath = fileInfo.Name, // Default to file name in dest dir
-                            FileSizeBytes = fileInfo.Length,
-                            IsQuickBooksFile = isQb,
-                            IsVssRequired = isQb || (SelectedProfile.UseVssForLockedFiles && IsFileExclusivelyLocked(filePath)),
-                            Status = TransferStatus.Pending,
-                            HashStatus = HashMatchStatus.Pending,
-                            StatusMessage = "Queued"
-                        };
-                        TransferQueue.Add(item);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarn($"Skipping inaccessible file '{filePath}': {ex.Message}");
-                    }
-                }
-
-                if (TransferQueue.Count == 0)
-                {
-                    MessageBox.Show("None of the selected files could be accessed or queued for transfer.", "Simply Transfer", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    StatusMessage = "Ready";
-                    return;
                 }
 
                 OverallProgress = 0;
                 StatusMessage = "Starting sync operation...";
+                SyncEventLogLines.Clear();
+                TransferQueue.Clear(); // Clear the UI queue immediately
 
                 var progress = new Progress<double>(p => OverallProgress = p);
 
-                bool success = await _orchestratorService.ExecuteSyncAsync(
-                    SelectedProfile,
-                    TransferQueue.ToList(),
-                    progress,
+                bool success = await Task.Run(async () => 
+                {
+                    var selectedFiles = FileBrowser.GetSelectedFilePaths();
+                    var processedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    
+                    var tq = new List<TransferItem>();
+                    var batchLock = new object();
+                    int totalEnqueued = 0;
+
+                    void FlushBatch()
+                    {
+                        List<TransferItem> itemsToPush;
+                        lock (batchLock)
+                        {
+                            if (tq.Count == 0) return;
+                            itemsToPush = tq.ToList();
+                            tq.Clear();
+                        }
+
+                        Application.Current?.Dispatcher.InvokeAsync(() => 
+                        {
+                            foreach(var item in itemsToPush)
+                            {
+                                TransferQueue.Add(item);
+                            }
+                        }, System.Windows.Threading.DispatcherPriority.Background);
+                    }
+
+                    Action<string> ProcessFile = (string filePath) =>
+                    {
+                        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath)) return;
+                        if (!processedPaths.Add(filePath)) return; // skip duplicates
+
+                        try
+                        {
+                            var fileInfo = new FileInfo(filePath);
+                            string ext = fileInfo.Extension;
+                            bool isQb = string.Equals(ext, ".qbw", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(ext, ".tlg", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(ext, ".qbb", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(ext, ".nd", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(ext, ".qbm", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(ext, ".qbx", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(ext, ".qby", StringComparison.OrdinalIgnoreCase) ||
+                                        fileInfo.FullName.IndexOf(".qbw\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        fileInfo.FullName.IndexOf(".tlg\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        fileInfo.FullName.IndexOf(".qbb\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        fileInfo.FullName.IndexOf(".nd\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        fileInfo.FullName.IndexOf(".qbm\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        fileInfo.FullName.IndexOf(".qbx\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        fileInfo.FullName.IndexOf(".qby\\", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                            string remoteTarget = fileInfo.Name;
+                            string? rootFolder = sourcePaths.OrderByDescending(p => p.Length)
+                                .FirstOrDefault(p => fileInfo.FullName.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+                                
+                            if (string.IsNullOrEmpty(rootFolder))
+                            {
+                                int maxLen = -1;
+                                foreach (var folder in checkedFolders)
+                                {
+                                    if (fileInfo.FullName.StartsWith(folder, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        if (folder.Length > maxLen)
+                                        {
+                                            maxLen = folder.Length;
+                                            rootFolder = folder;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if (!string.IsNullOrEmpty(rootFolder))
+                            {
+                                var dirInfo = new DirectoryInfo(rootFolder);
+                                string folderName = dirInfo.Name;
+                                if (folderName.EndsWith(":\\") || folderName.EndsWith(":")) 
+                                {
+                                    folderName = folderName.TrimEnd(':', '\\') + "_Drive";
+                                }
+                                
+                                string rel = fileInfo.FullName.Substring(rootFolder.Length).TrimStart('\\', '/');
+                                remoteTarget = Path.Combine(folderName, rel).Replace('\\', '/');
+                            }
+
+                            var item = new TransferItem
+                            {
+                                FileName = fileInfo.Name,
+                                LocalFilePath = fileInfo.FullName,
+                                RemoteFilePath = remoteTarget,
+                                FileSizeBytes = fileInfo.Length,
+                                IsQuickBooksFile = isQb,
+                                IsVssRequired = isQb || (useVssForLockedFiles && IsFileExclusivelyLocked(filePath)),
+                                Status = TransferStatus.Pending,
+                                HashStatus = HashMatchStatus.Pending,
+                                StatusMessage = "Queued"
+                            };
+
+                            lock (batchLock)
+                            {
+                                tq.Add(item);
+                                totalEnqueued++;
+                                if (tq.Count >= 250)
+                                {
+                                    FlushBatch();
+                                    Application.Current?.Dispatcher.InvokeAsync(() => StatusMessage = $"Discovered {totalEnqueued} files...");
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarn($"Skipping inaccessible file '{filePath}': {ex.Message}");
+                        }
+                    };
+
+                    _logger.LogInfo($"Scanning and streaming UI queue from selected paths...");
+
+                    // Process explicitly selected individual files first
+                    foreach (var path in selectedFiles)
+                    {
+                        ProcessFile(path);
+                    }
+
+                    // Also stream files from profile's configured directories
+                    if (sourcePaths.Count > 0)
+                    {
+                        foreach (var path in sourcePaths)
+                        {
+                            if (File.Exists(path))
+                            {
+                                ProcessFile(path);
+                            }
+                            else if (Directory.Exists(path))
+                            {
+                                try
+                                {
+                                    _logger.LogInfo($"Streaming files from directory: {path}");
+                                    var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
+                                    foreach(var filePath in Directory.EnumerateFiles(path, "*.*", options))
+                                    {
+                                        ProcessFile(filePath);
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
+                    }
+
+                    // Flush any remaining items
+                    FlushBatch();
+                    Application.Current?.Dispatcher.InvokeAsync(() => StatusMessage = $"Total queued: {totalEnqueued} files.");
+
+                    int finalCount = 0;
+                    Application.Current?.Dispatcher.Invoke(() => finalCount = TransferQueue.Count);
+
+                    if (finalCount == 0)
+                    {
+                        Application.Current?.Dispatcher.Invoke(() => MessageBox.Show("None of the selected files could be accessed or queued for transfer.", "Simply Transfer", MessageBoxButton.OK, MessageBoxImage.Warning));
+                        Application.Current?.Dispatcher.InvokeAsync(() => StatusMessage = "Ready");
+                        return false; // Return false to indicate early exit from sync
+                    }
+
+                    return await _orchestratorService.ExecuteSyncAsync(
+                        SelectedProfile!,
+                        TransferQueue.ToList(),
+                        progress,
+                    async (items) =>
+                    {
+                        var skipped = items.Count(i => i.Status == TransferStatus.Skipped);
+                        var toTransfer = items.Count(i => i.Status != TransferStatus.Skipped);
+                        if (toTransfer == 0) return true;
+
+                        bool proceed = false;
+                        await Application.Current.Dispatcher.InvokeAsync(() =>
+                        {
+                            var result = MessageBox.Show(
+                                $"Manifest comparison complete.\n\nFiles skipped (up to date): {skipped}\nFiles scheduled for transfer: {toTransfer}\n\nReview the transfer queue in the main window. Would you like to proceed with transferring the remaining files?",
+                                "Operator Validation Pause",
+                                MessageBoxButton.YesNo,
+                                MessageBoxImage.Question);
+                            proceed = (result == MessageBoxResult.Yes);
+                        });
+                        return proceed;
+                    },
                     _syncCts.Token);
+                });
 
                 if (success)
                 {
@@ -780,6 +866,14 @@ namespace SimplyTransfer.UI.ViewModels
             if (!string.IsNullOrEmpty(PlainPassphrase))
             {
                 SelectedProfile.EncryptedPassphrase = _securityService.EncryptString(PlainPassphrase);
+            }
+
+            if (SelectedProfile.IsFileEncryptionEnabled && SelectedProfile.EncryptedFileAesKey == null)
+            {
+                using var aes = System.Security.Cryptography.Aes.Create();
+                aes.KeySize = 256;
+                aes.GenerateKey();
+                SelectedProfile.EncryptedFileAesKey = _securityService.EncryptBytes(aes.Key);
             }
 
             _configService.SaveProfiles(Profiles.ToList());
@@ -1259,11 +1353,11 @@ namespace SimplyTransfer.UI.ViewModels
             try
             {
                 StatusMessage = "Repairing key permissions & ownership...";
-                await Task.Run(() =>
+                await Task.Run(async () =>
                 {
                     if (IsDestinationMode)
                     {
-                        _readinessService.RepairDestinationAcls();
+                        await _readinessService.RepairDestinationAclsAsync();
                     }
                     else if (SelectedProfile != null && !string.IsNullOrEmpty(SelectedProfile.PrivateKeyPath))
                     {
@@ -1299,7 +1393,12 @@ namespace SimplyTransfer.UI.ViewModels
             try
             {
                 StatusMessage = "Generating modern Ed25519 SSH key pair...";
-                string generatedKey = await _readinessService.GenerateSourceKeyPairAsync($"SimplyTransfer-{Environment.MachineName}");
+                
+                string keyFileName = SelectedProfile != null && SelectedProfile.Id != Guid.Empty
+                    ? $"simplytransfer_{SelectedProfile.Id}_ed25519"
+                    : "simplytransfer_ed25519";
+
+                string generatedKey = await Task.Run(() => _readinessService.GenerateSourceKeyPairAsync($"SimplyTransfer-{Environment.MachineName}", keyFileName));
 
                 if (SelectedProfile != null)
                 {
@@ -1330,10 +1429,36 @@ namespace SimplyTransfer.UI.ViewModels
             if (IsAuditingHealth) return;
             try
             {
-                StatusMessage = "Resetting security keys (this will delete local SSH keys)...";
-                await ExecuteScriptInternalAsync("Remove-SecurityKeys.ps1", "-NonInteractive");
-                await RefreshHealthAuditAsync();
-                StatusMessage = "Security keys have been reset.";
+                if (SelectedProfile != null)
+                {
+                    StatusMessage = "Removing selected profile's SSH key...";
+                    
+                    string keyToRemove = SelectedProfile.PrivateKeyPath;
+                    if (string.IsNullOrWhiteSpace(keyToRemove))
+                    {
+                        string keyFileName = SelectedProfile.Id != Guid.Empty
+                            ? $"simplytransfer_{SelectedProfile.Id}_ed25519"
+                            : "simplytransfer_ed25519";
+                        keyToRemove = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh", keyFileName);
+                    }
+                    
+                    _readinessService.RemoveSecurityKey(keyToRemove, line => 
+                    {
+                        Application.Current?.Dispatcher.InvokeAsync(() => _logger.LogInfo(line));
+                    });
+
+                    SelectedProfile.PrivateKeyPath = string.Empty;
+                    OnPropertyChanged(nameof(SelectedProfile));
+                    RefreshAssociatedPublicKey();
+                    SaveProfile();
+                    
+                    await RefreshHealthAuditAsync();
+                    StatusMessage = "Security keys have been removed for this profile.";
+                }
+                else
+                {
+                    StatusMessage = "No profile selected.";
+                }
             }
             catch (Exception ex)
             {
@@ -1343,14 +1468,273 @@ namespace SimplyTransfer.UI.ViewModels
         }
 
         /// <summary>
-        /// Executes the Source Setup script directly from the GUI with optional Administrator elevation.
+        /// Executes the Source Setup directly from the GUI using native code.
         /// Fulfills requirement: scripts for source and destination runnable from GUI.
         /// </summary>
         [RelayCommand]
         public async Task RunSourceSetupScriptAsync()
         {
-            string args = ElevateScriptExecution ? "-Elevate -NonInteractive -GenerateDestConfig" : "-NonInteractive -GenerateDestConfig";
-            await ExecuteScriptInternalAsync("setup-prerequisites.ps1", args);
+            if (IsScriptRunning) return;
+
+            try
+            {
+                IsScriptRunning = true;
+                ScriptRunStatus = "Executing native setup...";
+                ScriptOutputLines.Clear();
+
+                _scriptCts = new CancellationTokenSource();
+
+                await Task.Run(async () =>
+                {
+                    Action<string> outputHandler = line => 
+                    {
+                        Application.Current?.Dispatcher.InvokeAsync(() => ScriptOutputLines.Add(line));
+                    };
+
+                    outputHandler("[SETUP] Starting native source setup...");
+
+                    if (HostReadinessService.IsAdministrator())
+                    {
+                        await _readinessService.InstallOpenSshCapabilitiesAsync(outputHandler, _scriptCts.Token);
+                        await _readinessService.ConfigureSshServicesAsync(outputHandler, _scriptCts.Token);
+                        await _readinessService.ConfigureFirewallPort22Async(outputHandler, _scriptCts.Token);
+                    }
+                    else
+                    {
+                        outputHandler("[WARN] Not running as Administrator. Skipping OpenSSH installation and Firewall configuration. Please run the app as Administrator to perform these steps natively.");
+                    }
+
+                    var report = _readinessService.AuditSourceReadiness(SelectedProfile?.PrivateKeyPath);
+                    if (!report.KeyPairExists)
+                    {
+                        outputHandler("[SETUP] Generating new Ed25519 SSH Key Pair...");
+                        string keyFileName = SelectedProfile != null && SelectedProfile.Id != Guid.Empty
+                            ? $"simplytransfer_{SelectedProfile.Id}_ed25519"
+                            : "simplytransfer_ed25519";
+                        string generatedKey = await _readinessService.GenerateSourceKeyPairAsync("SimplyTransfer-Native", keyFileName);
+                        if (SelectedProfile != null)
+                        {
+                            Application.Current?.Dispatcher.InvokeAsync(() =>
+                            {
+                                SelectedProfile.PrivateKeyPath = generatedKey;
+                                OnPropertyChanged(nameof(SelectedProfile));
+                                RefreshAssociatedPublicKey();
+                                SaveProfile();
+                            });
+                        }
+                        outputHandler("[SETUP] Key Pair generated and ACLs repaired.");
+                    }
+                    else
+                    {
+                        outputHandler("[SETUP] SSH Key Pair already exists. Repairing ACLs...");
+                        _readinessService.RepairSourceKeyAcls(report.PrivateKeyPath);
+                    }
+
+                    outputHandler("[SETUP] Native setup complete. You can now generate a Destination Package.");
+                });
+
+                ScriptRunStatus = "Setup Completed";
+                await RefreshHealthAuditAsync();
+            }
+            catch (Exception ex)
+            {
+                ScriptRunStatus = "Setup Error";
+                ScriptOutputLines.Add($"[ERROR] {ex.Message}");
+                _logger.LogError("Error in RunSourceSetupScriptAsync", ex);
+            }
+            finally
+            {
+                IsScriptRunning = false;
+            }
+        }
+
+        [RelayCommand]
+        public async Task GenerateDestinationPackageAsync()
+        {
+            if (IsScriptRunning) return;
+
+            try
+            {
+                var sfd = new Microsoft.Win32.SaveFileDialog
+                {
+                    Filter = "Simply Transfer Package|*.zip",
+                    FileName = $"SimplyTransfer-Dest-Package-{Environment.MachineName}.zip"
+                };
+
+                if (sfd.ShowDialog() == true)
+                {
+                    IsScriptRunning = true;
+                    ScriptRunStatus = "Generating package...";
+                    ScriptOutputLines.Clear();
+
+                    await Task.Run(() =>
+                    {
+                        string tempDir = Path.Combine(Path.GetTempPath(), "SimplyTransfer-Dest-Package-" + Guid.NewGuid().ToString());
+                        Directory.CreateDirectory(tempDir);
+
+                        try
+                        {
+                            Action<string> outputHandler = line => 
+                            {
+                                Application.Current?.Dispatcher.InvokeAsync(() => ScriptOutputLines.Add(line));
+                            };
+                            
+                            outputHandler("[PACKAGE] Bundling configuration profile...");
+                            
+                            if (SelectedProfile != null)
+                            {
+                                string profileJson = System.Text.Json.JsonSerializer.Serialize(SelectedProfile);
+                                File.WriteAllText(Path.Combine(tempDir, "profile.json"), profileJson);
+                            }
+
+                            outputHandler("[PACKAGE] Bundling public key...");
+                            var report = _readinessService.AuditSourceReadiness(SelectedProfile?.PrivateKeyPath);
+                            if (report.KeyPairExists && File.Exists(report.PublicKeyPath))
+                            {
+                                File.Copy(report.PublicKeyPath, Path.Combine(tempDir, "simplytransfer_ed25519.pub"));
+                            }
+
+                            string? exePath = Environment.ProcessPath;
+                            if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+                            {
+                                string exeDir = Path.GetDirectoryName(exePath) ?? string.Empty;
+                                if (!string.IsNullOrEmpty(exeDir))
+                                {
+                                    outputHandler("[PACKAGE] Bundling application executable and dependencies...");
+                                    File.Copy(exePath, Path.Combine(tempDir, Path.GetFileName(exePath)), true);
+                                    
+                                    foreach (var dll in Directory.GetFiles(exeDir, "*.dll"))
+                                    {
+                                        File.Copy(dll, Path.Combine(tempDir, Path.GetFileName(dll)), true);
+                                    }
+                                    
+                                    foreach (var json in Directory.GetFiles(exeDir, "*.json"))
+                                    {
+                                        File.Copy(json, Path.Combine(tempDir, Path.GetFileName(json)), true);
+                                    }
+                                }
+                            }
+
+                            outputHandler("[PACKAGE] Zipping package...");
+                            if (File.Exists(sfd.FileName)) File.Delete(sfd.FileName);
+                            System.IO.Compression.ZipFile.CreateFromDirectory(tempDir, sfd.FileName);
+
+                            outputHandler($"[PACKAGE] Package created at: {sfd.FileName}");
+                        }
+                        finally
+                        {
+                            Directory.Delete(tempDir, true);
+                        }
+                    });
+                    
+                    ScriptRunStatus = "Package Generated";
+                }
+            }
+            catch (Exception ex)
+            {
+                ScriptRunStatus = "Package Error";
+                ScriptOutputLines.Add($"[ERROR] {ex.Message}");
+                _logger.LogError("Error in GenerateDestinationPackageAsync", ex);
+            }
+            finally
+            {
+                IsScriptRunning = false;
+            }
+        }
+
+        [RelayCommand]
+        public async Task ImportDestinationPackageAsync()
+        {
+            if (IsScriptRunning) return;
+
+            try
+            {
+                var ofd = new Microsoft.Win32.OpenFileDialog
+                {
+                    Filter = "Simply Transfer Package|*.zip"
+                };
+
+                if (ofd.ShowDialog() == true)
+                {
+                    IsScriptRunning = true;
+                    ScriptRunStatus = "Importing package...";
+                    ScriptOutputLines.Clear();
+
+                    await Task.Run(async () =>
+                    {
+                        string tempDir = Path.Combine(Path.GetTempPath(), "SimplyTransfer-Dest-Package-" + Guid.NewGuid().ToString());
+                        Directory.CreateDirectory(tempDir);
+
+                        try
+                        {
+                            Action<string> outputHandler = line => 
+                            {
+                                Application.Current?.Dispatcher.InvokeAsync(() => ScriptOutputLines.Add(line));
+                            };
+
+                            outputHandler("[PACKAGE] Extracting package...");
+                            System.IO.Compression.ZipFile.ExtractToDirectory(ofd.FileName, tempDir);
+
+                            outputHandler("[PACKAGE] Importing configuration profile...");
+                            
+                            string profileFile = Path.Combine(tempDir, "profile.json");
+                            if (File.Exists(profileFile))
+                            {
+                                string profileJson = File.ReadAllText(profileFile);
+                                var profile = System.Text.Json.JsonSerializer.Deserialize<SimplyTransfer.Core.Models.SyncProfile>(profileJson);
+                                if (profile != null)
+                                {
+                                    Application.Current?.Dispatcher.InvokeAsync(() =>
+                                    {
+                                        profile.Id = Guid.NewGuid(); // Prevent collision
+                                        profile.Name = profile.Name + " (Imported)";
+                                        Profiles.Add(profile);
+                                        SelectedProfile = profile;
+                                        _configService.SaveProfiles(Profiles.ToList());
+                                    });
+                                }
+                            }
+
+                            string pubKeyFile = Path.Combine(tempDir, "simplytransfer_ed25519.pub");
+                            if (File.Exists(pubKeyFile))
+                            {
+                                outputHandler("[PACKAGE] Importing public key...");
+                                string userSshDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh");
+                                if (!Directory.Exists(userSshDir)) Directory.CreateDirectory(userSshDir);
+                                string destPubKey = Path.Combine(userSshDir, "simplytransfer_ed25519.pub");
+                                File.Copy(pubKeyFile, destPubKey, true);
+                                
+                                // And configure it using ReadinessService
+                                if (HostReadinessService.IsAdministrator())
+                                {
+                                    string destDir = SelectedProfile?.DestinationDirectory ?? @"C:\Backups";
+                                    string destUser = SelectedProfile?.Username ?? Environment.UserName;
+                                    await _readinessService.ProvisionDestinationUserAsync(destUser, destDir, destPubKey, outputHandler);
+                                }
+                            }
+
+                            outputHandler("[PACKAGE] Package imported successfully.");
+                        }
+                        finally
+                        {
+                            Directory.Delete(tempDir, true);
+                        }
+                    });
+                    
+                    ScriptRunStatus = "Package Imported";
+                    await RefreshHealthAuditAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                ScriptRunStatus = "Import Error";
+                ScriptOutputLines.Add($"[ERROR] {ex.Message}");
+                _logger.LogError("Error in ImportDestinationPackageAsync", ex);
+            }
+            finally
+            {
+                IsScriptRunning = false;
+            }
         }
 
         /// <summary>
@@ -1433,6 +1817,20 @@ namespace SimplyTransfer.UI.ViewModels
         {
             ScriptOutputLines.Clear();
             ScriptRunStatus = "Ready";
+        }
+
+        /// <summary>
+        /// Cancels the currently running GUI script.
+        /// </summary>
+        [RelayCommand]
+        public void CancelScript()
+        {
+            if (_scriptCts != null && !_scriptCts.IsCancellationRequested)
+            {
+                _scriptCts.Cancel();
+                ScriptRunStatus = "Cancelling...";
+                ScriptOutputLines.Add("[CANCEL] Requested setup cancellation...");
+            }
         }
 
         /// <summary>

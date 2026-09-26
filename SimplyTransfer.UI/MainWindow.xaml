@@ -622,8 +622,33 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Card 4: Encryption & Sync Validation Options -->
+                        <Border Grid.Row="3" Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="Encryption &amp; Sync Validation" FontSize="15" FontWeight="Bold" Margin="0,0,0,4"/>
+                                <TextBlock Text="Configure payload encryption and validation rules for incremental file synchronization." 
+                                           FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,14"/>
+
+                                <CheckBox Content="Enable File Encryption (AES-256 encrypted payload before transfer)" 
+                                          IsChecked="{Binding SelectedProfile.IsFileEncryptionEnabled}" 
+                                          FontWeight="SemiBold" Margin="0,0,0,12" Foreground="#38BDF8"/>
+
+                                <CheckBox Content="Smart Sync: Skip files that are unchanged on destination" 
+                                          IsChecked="{Binding SelectedProfile.SkipUnchangedFiles}" 
+                                          FontWeight="SemiBold" Margin="0,0,0,8"/>
+
+                                <StackPanel Orientation="Horizontal" Margin="20,0,0,0">
+                                    <TextBlock Text="Validation Method: " FontSize="12" Foreground="{StaticResource TextSecondary}" VerticalAlignment="Center"/>
+                                    <ComboBox SelectedValue="{Binding SelectedProfile.SyncValidationMethod}" SelectedValuePath="Content" Height="28" Width="180">
+                                        <ComboBoxItem Content="SizeAndTimestamp"/>
+                                        <ComboBoxItem Content="Hash"/>
+                                    </ComboBox>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                         <!-- Profile Action Buttons -->
-                        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,20">
+                        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,20">
                             <Button Content="Export Profile JSON" Command="{Binding ExportProfileCommand}" Style="{StaticResource ModernButton}" Margin="0,0,10,0" Padding="16,8"/>
                             <Button Content="Save Profile Changes" Command="{Binding SaveProfileCommand}" Style="{StaticResource PrimaryButton}" Padding="20,8"/>
                         </StackPanel>
@@ -885,10 +910,19 @@
                                                 ToolTip="Extracts a generated destination configuration package and imports the profile and public key locally"/>
                                     </WrapPanel>
 
-                                    <Button Grid.Column="1" Content="Clear Console" 
-                                            Command="{Binding ClearScriptOutputCommand}" 
-                                            Style="{StaticResource ModernButton}" 
-                                            Padding="10,4"/>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                        <Button Content="⏹ Cancel" 
+                                                Command="{Binding CancelScriptCommand}" 
+                                                Style="{StaticResource ModernButton}" 
+                                                Padding="10,4" Margin="0,0,10,0" Foreground="#EF4444"
+                                                Visibility="{Binding IsScriptRunning, Converter={StaticResource BoolToVisConverter}}"
+                                                ToolTip="Cancel running setup script"/>
+
+                                        <Button Content="Clear Console" 
+                                                Command="{Binding ClearScriptOutputCommand}" 
+                                                Style="{StaticResource ModernButton}" 
+                                                Padding="10,4"/>
+                                    </StackPanel>
                                 </Grid>
 
                                 <!-- Live Terminal Console Box -->

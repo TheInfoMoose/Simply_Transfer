@@ -144,6 +144,7 @@ namespace SimplyTransfer.UI
                 Console.WriteLine("  --setup-source                   Bootstrap source client SSH key infrastructure (headless)");
                 Console.WriteLine("  --repair-acls                    Repair strict NTFS permissions on private/authorized keys (headless)");
                 Console.WriteLine("  --run-embedded-script <name>     Execute embedded PowerShell setup script in-process");
+                Console.WriteLine("  --generate-manifest <dir> <mode> Generate pre-transfer manifest JSON (mode: Hash or SizeAndTimestamp)");
                 Console.WriteLine("  --help, -h, -?                   Show this help message");
                 return true;
             }
@@ -164,21 +165,49 @@ namespace SimplyTransfer.UI
             if (args.Any(a => a.Equals("--setup-source", StringComparison.OrdinalIgnoreCase) || a.Equals("-SetupSource", StringComparison.OrdinalIgnoreCase)))
             {
                 _logger?.LogInfo("[CLI] Executing source setup bootstrap...");
-                Action<string> logAction = line => Console.WriteLine(line);
-                readiness.InstallOpenSshCapabilities(logAction);
-                readiness.ConfigureSshServices(logAction);
-                readiness.ConfigureFirewallPort22(logAction);
+                var setupWindow = new SetupProgressWindow();
                 
-                var report = readiness.AuditSourceReadiness();
-                if (!report.KeyPairExists)
+                Action<string> logAction = line => 
                 {
-                    readiness.GenerateSourceKeyPairAsync().GetAwaiter().GetResult();
-                }
-                else
+                    Console.WriteLine(line);
+                    setupWindow.AppendLog(line);
+                };
+
+                Task.Run(async () =>
                 {
-                    readiness.RepairSourceKeyAcls(report.PrivateKeyPath);
-                }
-                _logger?.LogSuccess("[CLI] Source host bootstrap complete.");
+                    try
+                    {
+                        await readiness.InstallOpenSshCapabilitiesAsync(logAction);
+                        await readiness.ConfigureSshServicesAsync(logAction);
+                        await readiness.ConfigureFirewallPort22Async(logAction);
+                        
+                        var report = readiness.AuditSourceReadiness();
+                        if (!report.KeyPairExists)
+                        {
+                            await readiness.GenerateSourceKeyPairAsync();
+                        }
+                        else
+                        {
+                            readiness.RepairSourceKeyAcls(report.PrivateKeyPath);
+                        }
+                        
+                        _logger?.LogSuccess("[CLI] Source host bootstrap complete.");
+                        setupWindow.Complete();
+                        await Task.Delay(2000);
+                    }
+                    catch (Exception ex)
+                    {
+                        logAction($"ERROR: {ex.Message}");
+                        Application.Current.Dispatcher.Invoke(() => setupWindow.ActivityProgressBar.IsIndeterminate = false);
+                        await Task.Delay(5000);
+                    }
+                    finally
+                    {
+                        Application.Current.Dispatcher.Invoke(() => setupWindow.Close());
+                    }
+                });
+
+                setupWindow.ShowDialog();
                 return true;
             }
 
@@ -201,13 +230,13 @@ namespace SimplyTransfer.UI
                 }
 
                 Action<string> logAction = line => Console.WriteLine(line);
-                readiness.InstallOpenSshCapabilities(logAction);
-                readiness.ConfigureSshServices(logAction);
-                readiness.ConfigureFirewallPort22(logAction);
+                readiness.InstallOpenSshCapabilitiesAsync(logAction).GetAwaiter().GetResult();
+                readiness.ConfigureSshServicesAsync(logAction).GetAwaiter().GetResult();
+                readiness.ConfigureFirewallPort22Async(logAction).GetAwaiter().GetResult();
 
                 if (!string.IsNullOrEmpty(pubKeyPath) && File.Exists(pubKeyPath))
                 {
-                    readiness.ProvisionDestinationUser(targetUser, targetDir, pubKeyPath, logAction);
+                    readiness.ProvisionDestinationUserAsync(targetUser, targetDir, pubKeyPath, logAction).GetAwaiter().GetResult();
                 }
                 else
                 {
@@ -235,7 +264,7 @@ namespace SimplyTransfer.UI
                 {
                     readiness.RepairSourceKeyAcls(srcReport.PrivateKeyPath);
                 }
-                readiness.RepairDestinationAcls();
+                readiness.RepairDestinationAclsAsync().GetAwaiter().GetResult();
                 _logger?.LogSuccess("[CLI] Key ACLs and ownership repaired.");
                 return true;
             }
@@ -253,6 +282,44 @@ namespace SimplyTransfer.UI
                     line => Console.WriteLine(line)).GetAwaiter().GetResult();
 
                 Environment.ExitCode = exitCode;
+                return true;
+            }
+
+            if (args.Any(a => a.Equals("--generate-manifest", StringComparison.OrdinalIgnoreCase)))
+            {
+                int idx = Array.FindIndex(args, a => a.Equals("--generate-manifest", StringComparison.OrdinalIgnoreCase));
+                if (idx < args.Length - 2)
+                {
+                    string dir = args[idx + 1];
+                    string mode = args[idx + 2];
+                    if (System.IO.Directory.Exists(dir))
+                    {
+                        var files = System.IO.Directory.GetFiles(dir, "*.*", System.IO.SearchOption.AllDirectories);
+                        var manifest = new System.Collections.Generic.List<SimplyTransfer.Core.Models.ManifestItem>();
+                        var hashSvc = new SimplyTransfer.Core.Services.HashValidationService();
+                        foreach (var file in files)
+                        {
+                            var fi = new System.IO.FileInfo(file);
+                            var item = new SimplyTransfer.Core.Models.ManifestItem
+                            {
+                                FileName = fi.FullName.Substring(dir.Length).TrimStart('\\', '/').Replace('\\', '/'),
+                                Size = fi.Length,
+                                LastWriteTimeUtc = fi.LastWriteTimeUtc
+                            };
+                            if (mode.Equals("Hash", StringComparison.OrdinalIgnoreCase))
+                            {
+                                item.Sha256 = hashSvc.ComputeLocalHashAsync(fi.FullName).GetAwaiter().GetResult();
+                            }
+                            manifest.Add(item);
+                        }
+                        string json = System.Text.Json.JsonSerializer.Serialize(manifest, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                        Console.WriteLine(json);
+                    }
+                    else
+                    {
+                        Console.WriteLine("[]"); // Return empty array if dir doesn't exist
+                    }
+                }
                 return true;
             }
 
